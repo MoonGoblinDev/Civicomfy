@@ -390,16 +390,15 @@ class CivitaiDownloaderUI {
                                     <option value="Day">Past Day</option>
                                 </select>
                                 <!-- NSFW Filter - uncomment and adjust if API supports boolean -->
-                                <!-- <div class="civitai-form-group inline" style="align-self: center;" title="Requires API key for authenticated NSFW filtering">
-                                    <input type="checkbox" id="civitai-search-nsfw" class="civitai-checkbox" disabled>
+                                <div class="civitai-form-group inline" style="align-self: center;" title="Requires API key for authenticated NSFW filtering">
+                                    <input type="checkbox" id="civitai-search-nsfw" class="civitai-checkbox">
                                     <label for="civitai-search-nsfw">Include NSFW</label>
-                                </div> -->
-                                <button type="submit" id="civitai-search-submit" class="civitai-button primary">Search</button>
+                                </div>
                             </div>
+                        <button type="submit" id="civitai-search-submit" class="civitai-button primary">Search</button>
                         </form>
                         <div id="civitai-search-results" class="civitai-search-results">
                             <!-- Search results will be populated here -->
-                            <p>Enter a query and click Search.</p>
                         </div>
                          <div id="civitai-search-pagination" style="text-align: center; margin-top: 20px;">
                              <!-- Pagination controls -->
@@ -492,7 +491,7 @@ class CivitaiDownloaderUI {
         this.searchTypeSelect = this.modal.querySelector('#civitai-search-type');
         this.searchSortSelect = this.modal.querySelector('#civitai-search-sort');
         this.searchPeriodSelect = this.modal.querySelector('#civitai-search-period');
-        // this.searchNsfwCheckbox = this.modal.querySelector('#civitai-search-nsfw'); // If uncommented later
+        this.searchNsfwCheckbox = this.modal.querySelector('#civitai-search-nsfw'); // If uncommented later
         this.searchSubmitButton = this.modal.querySelector('#civitai-search-submit');
         this.searchResultsContainer = this.modal.querySelector('#civitai-search-results');
         this.searchPaginationContainer = this.modal.querySelector('#civitai-search-pagination');
@@ -655,10 +654,10 @@ class CivitaiDownloaderUI {
          });
 
          // Enable/Disable NSFW search checkbox based on API key presence (optional)
-         /*
-         if (this.settingsApiKeyInput && this.searchNsfwCheckbox) {
+         
+         if (this.settings.apiKey && this.searchNsfwCheckbox) {
              const updateNsfwState = () => {
-                 const hasApiKey = this.settingsApiKeyInput.value.trim() !== '';
+                 const hasApiKey = this.settings.apiKey !== '';
                  this.searchNsfwCheckbox.disabled = !hasApiKey;
                  if (!hasApiKey) {
                      this.searchNsfwCheckbox.checked = false; // Uncheck if disabled
@@ -670,7 +669,7 @@ class CivitaiDownloaderUI {
               this.settingsApiKeyInput.addEventListener('input', updateNsfwState);
               updateNsfwState(); // Initial check
          }
-         */
+         
     }
 
     switchTab(tabId) {
@@ -867,7 +866,7 @@ class CivitaiDownloaderUI {
             limit: this.searchPagination.limit,
             page: this.searchPagination.currentPage,
             api_key: this.settings.apiKey, // Pass API key for potentially authenticated search/filtering
-            // nsfw: this.searchNsfwCheckbox ? this.searchNsfwCheckbox.checked : null // Pass NSFW preference if checkbox exists
+            nsfw: this.searchNsfwCheckbox ? this.searchNsfwCheckbox.checked : null // Pass NSFW preference if checkbox exists
         };
 
         try {
