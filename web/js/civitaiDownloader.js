@@ -230,7 +230,7 @@ class CivitaiDownloaderUI {
     getDefaultSettings() {
          return {
             apiKey: '',
-            numConnections: 4,
+            numConnections: 1,
             defaultModelType: 'checkpoint',
             autoOpenStatusTab: true,
             searchResultLimit: 10, // Added default
@@ -591,45 +591,55 @@ class CivitaiDownloaderUI {
 
          // Search result Actions (Download Button)
         this.searchResultsContainer.addEventListener('click', (event) => {
-             const button = event.target.closest('.civitai-search-download-button');
-             if (!button) return; // Exit if click wasn't on the download button
+            const button = event.target.closest('.civitai-search-download-button');
+            if (!button) return; // Exit if click wasn't on the download button
 
-             const modelId = button.dataset.modelId;
-             const versionId = button.dataset.versionId;
-             const modelTypeApi = button.dataset.modelType; // Civitai's type for the model
-             const defaultSaveTypeKey = this.settings.defaultModelType; // User's preferred save location key
+            const modelId = button.dataset.modelId;
+            const versionId = button.dataset.versionId;
+            const modelTypeApi = button.dataset.modelType; // Civitai's type for the model
+            const defaultSaveTypeKey = this.settings.defaultModelType; // User's preferred save location key
 
-             if (!modelId || !versionId) {
-                  console.error("Missing model/version ID on search download button.");
-                  this.showToast("Error: Missing data for download.", "error");
-                  return;
-             }
+            if (!modelId || !versionId) {
+                 console.error("Missing model/version ID on search download button.");
+                 this.showToast("Error: Missing data for download.", "error");
+                 return;
+            }
 
-             // Determine the best *SAVE* location type (internal key like 'lora', 'checkpoint')
-             // Map the API type (e.g., "LORA", "Checkpoint") back to our internal keys
-             const modelTypeInternalKey = Object.keys(this.modelTypes).find(key =>
-                 (this.modelTypes[key]?.toLowerCase() === modelTypeApi?.toLowerCase()) || // Direct match display name
-                 (key === modelTypeApi?.toLowerCase()) // Match internal key if API returns that
-             ) || defaultSaveTypeKey; // Fallback to user default if type is unknown/unmappable
+            // Determine the best *SAVE* location type (internal key like 'lora', 'checkpoint')
+            // Map the API type (e.g., "LORA", "Checkpoint") back to our internal keys
+            const modelTypeInternalKey = Object.keys(this.modelTypes).find(key =>
+                (this.modelTypes[key]?.toLowerCase() === modelTypeApi?.toLowerCase()) || // Direct match display name
+                (key === modelTypeApi?.toLowerCase()) // Match internal key if API returns that
+            ) || defaultSaveTypeKey; // Fallback to user default if type is unknown/unmappable
 
-             console.log(`Search DL: ModelID=${modelId}, VersionID=${versionId}, API Type=${modelTypeApi}, Target Save Key=${modelTypeInternalKey}`);
+            console.log(`Search DL: ModelID=${modelId}, VersionID=${versionId}, API Type=${modelTypeApi}, Target Save Key=${modelTypeInternalKey}`);
 
-             // Pre-fill the download form
-             this.modelUrlInput.value = modelId; // Use ID for simplicity on form
-             this.modelVersionIdInput.value = versionId;
-              // Ensure the type exists in the dropdown before setting
-              if (this.downloadModelTypeSelect.querySelector(`option[value="${modelTypeInternalKey}"]`)) {
-                 this.downloadModelTypeSelect.value = modelTypeInternalKey;
-              } else {
-                  console.warn(`Target save type '${modelTypeInternalKey}' not found in dropdown, using default '${defaultSaveTypeKey}'.`);
-                  this.downloadModelTypeSelect.value = defaultSaveTypeKey;
-              }
-             this.customFilenameInput.value = ''; // Clear custom filename
-             this.forceRedownloadCheckbox.checked = false;
-             this.downloadConnectionsInput.value = this.settings.numConnections; // Set connections from settings
+            // --- Pre-fill the form fields (EXCEPT the dropdown for now) ---
+            this.modelUrlInput.value = modelId; // Use ID for simplicity on form
+            this.modelVersionIdInput.value = versionId;
+            this.customFilenameInput.value = ''; // Clear custom filename
+            this.forceRedownloadCheckbox.checked = false;
+            this.downloadConnectionsInput.value = this.settings.numConnections; // Set connections from settings
 
-             this.switchTab('download'); // Switch to download tab
-             this.showToast(`Filled download form for Model ID ${modelId}. Review save location.`, 'info', 4000);
+            // --- Switch tab FIRST ---
+            // This will run the default-setting logic inside switchTab
+            this.switchTab('download');
+
+            // --- NOW, set the specific dropdown value AFTER switching ---
+            // This overrides the default set by switchTab with the value from the search result
+            if (this.downloadModelTypeSelect.querySelector(`option[value="${modelTypeInternalKey}"]`)) {
+                this.downloadModelTypeSelect.value = modelTypeInternalKey;
+                console.log(`Set download dropdown value AFTER switchTab to: ${modelTypeInternalKey}`);
+            } else {
+                // If the determined key isn't valid for some reason, it will have already been set
+                // to the 'defaultSaveTypeKey' by the switchTab logic, so we just log a warning.
+                console.warn(`Target save type '${modelTypeInternalKey}' not found in dropdown after switchTab. Default '${defaultSaveTypeKey}' should be selected.`);
+                // Optionally force the default again just to be absolutely sure, though likely redundant:
+                // this.downloadModelTypeSelect.value = defaultSaveTypeKey;
+            }
+
+            // --- Show feedback ---
+            this.showToast(`Filled download form for Model ID ${modelId}. Review save location.`, 'info', 4000);
         });
 
         // Pagination (using event delegation)
@@ -1086,7 +1096,7 @@ class CivitaiDownloaderUI {
              const progress = item.progress !== undefined ? Math.max(0, Math.min(100, item.progress)) : 0;
              const speed = item.speed !== undefined ? Math.max(0, item.speed) : 0;
              const status = item.status || 'unknown';
-             const size = item.file_size !== undefined ? item.file_size : 0; // Size in bytes
+             const size = item.known_size !== undefined && item.known_size !== null ? item.known_size : (item.file_size || 0); // Prioritize known_size, fallback to file_size
              const downloadedBytes = size > 0 ? size * (progress / 100) : 0;
              const errorMsg = item.error || null;
              const modelName = item.model_name || 'Unknown Model';
@@ -1096,6 +1106,8 @@ class CivitaiDownloaderUI {
              const startTime = item.start_time || null;
              const endTime = item.end_time || null;
              const thumbnail = item.thumbnail || PLACEHOLDER_IMAGE_URL; // Use stored placeholder
+             // ---> Get Connection Type <---
+             const connectionType = item.connection_type || "N/A";
 
              let progressBarClass = '';
              let statusText = status.charAt(0).toUpperCase() + status.slice(1); // Capitalize first letter
@@ -1128,6 +1140,11 @@ class CivitaiDownloaderUI {
              // Tooltip for error
              const errorTooltip = errorMsg ? `title="Error Details: ${errorMsg}"` : '';
 
+             // ---> Display Connection Type <---
+             const connectionInfoHtml = connectionType !== "N/A"
+                ? `<span style="font-size: 0.85em; color: #aaa; margin-left: 10px;">(Conn: ${connectionType})</span>`
+                : '';
+
              let innerHTML = `
                 <img src="${thumbnail}" alt="thumbnail" class="civitai-download-thumbnail" loading="lazy" onerror="${onErrorScript}">
                 <div class="civitai-download-info">
@@ -1140,6 +1157,9 @@ class CivitaiDownloaderUI {
 
             // Progress Bar and Speed Section
              if (status === 'downloading' || status === 'starting' || status === 'completed') {
+                  // Move status text here to combine with conn type
+                  const statusLine = `<div ${durationTooltip} ${endedTooltip}>Status: ${statusText} ${connectionInfoHtml}</div>`;
+
                  innerHTML += `
                     <div class="civitai-progress-container" title="${statusText} - ${progress.toFixed(1)}%">
                         <div class="civitai-progress-bar ${progressBarClass}" style="width: ${progress}%;">
@@ -1151,19 +1171,14 @@ class CivitaiDownloaderUI {
                  const progressText = (status === 'downloading' && size > 0) ? `(${this.formatBytes(downloadedBytes)} / ${this.formatBytes(size)})` : '';
                  const completedText = status === 'completed' ? 'Completed' : '';
 
-                 innerHTML += `<div class="civitai-speed-indicator" ${durationTooltip} ${endedTooltip}>${speedText} ${progressText} ${completedText}</div>`; // Add time tooltips here
+                 // Combine speed/progress/status into fewer lines
+                 innerHTML += `<div class="civitai-speed-indicator">${speedText} ${progressText} ${completedText}</div>`;
+                 innerHTML += statusLine;
 
-             } else if (status === 'failed') {
-                  innerHTML += `<div ${durationTooltip} ${endedTooltip}>Status: ${statusText}</div>`;
-
-             } else if (status === 'queued') {
-                 innerHTML += `<div ${addedTooltip}>Status: Queued</div>`;
-             }
-              else if (status === 'cancelled') {
-                 innerHTML += `<div ${durationTooltip} ${endedTooltip}>Status: Cancelled</div>`;
-             }
-              else { // Catch 'unknown' or others
-                 innerHTML += `<div>Status: ${statusText}</div>`;
+             } else if (status === 'failed' || status === 'cancelled' || status === 'queued') {
+                  innerHTML += `<div ${durationTooltip} ${endedTooltip} ${addedTooltip}>Status: ${statusText} ${connectionInfoHtml}</div>`;
+             } else { // Catch 'unknown' or others
+                 innerHTML += `<div>Status: ${statusText} ${connectionInfoHtml}</div>`;
              }
 
             innerHTML += `</div>`; // Close civitai-download-info
@@ -1174,10 +1189,8 @@ class CivitaiDownloaderUI {
                 innerHTML += `<button class="civitai-button danger small civitai-cancel-button" data-id="${id}" title="Cancel Download"><i class="fas fa-times"></i></button>`;
             }
              if (status === 'failed' || status === 'cancelled') {
-                // Add retry button - requires storing download info to re-queue
                 innerHTML += `<button class="civitai-button small civitai-retry-button" data-id="${id}" disabled title="Retry not implemented"><i class="fas fa-redo"></i></button>`;
             }
-            // Future actions: Locate file, Copy info, etc.
             innerHTML += `</div>`; // Close civitai-download-actions
 
             listItem.innerHTML = innerHTML;
@@ -1188,8 +1201,8 @@ class CivitaiDownloaderUI {
         container.innerHTML = ''; // Clear existing content
         container.appendChild(fragment);
 
-         // Ensure FontAwesome is loaded for icons (do this once?)
-         this.ensureFontAwesome();
+         this.ensureFontAwesome(); // Ensure icons are available
+    
     }
 
     // Helper function to format duration
@@ -1197,7 +1210,7 @@ class CivitaiDownloaderUI {
          try {
              const start = new Date(isoStart);
              const end = new Date(isoEnd);
-             const diffSeconds = Math.round((end - start) / 1000);
+             const diffSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
 
              if (isNaN(diffSeconds) || diffSeconds < 0) return 'N/A';
              if (diffSeconds < 60) return `${diffSeconds}s`;
