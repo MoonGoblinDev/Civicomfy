@@ -509,4 +509,4 @@ async def route_get_model_types(request):
         print(f"Error getting model types: {e}")
         return web.json_response({"error": "Internal Server Error", "details": str(e), "status_code": 500}, status=500)
 
-print("[Civitai Downloader] Server routes registered.")
+print("[Civicomfy] Server routes registered.")

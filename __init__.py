@@ -23,11 +23,11 @@ try:
     # Import server routes (registers the routes)
     from .server import routes
     imports_successful = True
-    print("[Civitai Downloader] Core modules imported successfully.")
+    print("[Civicomfy] Core modules imported successfully.")
 except ImportError as e:
     imports_successful = False
     print("*"*80)
-    print(f"[Civitai Downloader] ERROR: Failed to import core modules: {e}")
+    print(f"[Civicomfy] ERROR: Failed to import core modules: {e}")
     print("Please ensure the file structure is correct and all required files exist.")
     print("Extension will likely not function correctly.")
     print("*"*80)
@@ -36,7 +36,7 @@ except Exception as e:
     # Catch other potential init errors during import
     import traceback
     print("*"*80)
-    print(f"[Civitai Downloader] ERROR: An unexpected error occurred during module import:")
+    print(f"[Civicomfy] ERROR: An unexpected error occurred during module import:")
     traceback.print_exc()
     print("Extension will likely not function correctly.")
     print("*"*80)
@@ -45,7 +45,7 @@ except Exception as e:
 frontend_files_ok = True
 if not os.path.exists(CSS_FILE_PATH):
     print("*"*80)
-    print(f"[Civitai Downloader] WARNING: Frontend CSS file not found!")
+    print(f"[Civicomfy] WARNING: Frontend CSS file not found!")
     print(f"                         Expected at: {CSS_FILE_PATH}")
     print("                         The downloader UI may not display correctly.")
     print("                         Please ensure 'civitaiDownloader.css' is placed in the 'web/css' directory.")
@@ -54,7 +54,7 @@ if not os.path.exists(CSS_FILE_PATH):
 
 if not os.path.exists(JS_FILE_PATH):
     print("*"*80)
-    print(f"[Civitai Downloader] WARNING: Frontend JavaScript file not found!")
+    print(f"[Civicomfy] WARNING: Frontend JavaScript file not found!")
     print(f"                         Expected at: {JS_FILE_PATH}")
     print("                         The downloader UI functionality will be missing.")
     print("                         Please ensure 'civitaiDownloader.js' is placed in the 'web/js' directory.")
@@ -75,7 +75,7 @@ if imports_successful:
 
     # --- Startup Messages ---
     print("-" * 30)
-    print("--- Civitai Downloader Custom Extension Loaded ---")
+    print("--- Civicomfy Custom Extension Loaded ---")
     print(f"- Serving frontend files from: {os.path.abspath(WEB_PATH)} (Relative: {WEB_DIRECTORY})")
     # Download manager and routes are initialized/registered upon import
     print(f"- Download Manager Initialized: {'Yes' if 'download_manager' in locals() else 'No! Import failed.'}")
@@ -84,7 +84,7 @@ if imports_successful:
          print("- Frontend files found.")
     else:
          print("- WARNING: Frontend files missing (see warnings above). UI may not work.")
-    print("- Look for 'Civitai Downloader' button in the ComfyUI menu.")
+    print("- Look for 'Civicomfy' button in the ComfyUI menu.")
     print("-" * 30)
 
     # Create placeholder image if needed (can run even if other things failed)
@@ -92,13 +92,13 @@ if imports_successful:
         create_placeholder_image(PLACEHOLDER_IMAGE_PATH)
     except NameError:
         # Handle case where PLACEHOLDER_IMAGE_PATH itself failed to import
-        print("[Civitai Downloader] Warning: Could not create placeholder image due to failed config import.")
+        print("[Civicomfy] Warning: Could not create placeholder image due to failed config import.")
     except Exception as e:
-        print(f"[Civitai Downloader] Error trying to create placeholder image: {e}")
+        print(f"[Civicomfy] Error trying to create placeholder image: {e}")
 
 else:
     # If imports failed, don't register anything with ComfyUI
-    print("[Civitai Downloader] Initialization failed due to import errors. Extension inactive.")
+    print("[Civicomfy] Initialization failed due to import errors. Extension inactive.")
     NODE_CLASS_MAPPINGS = {}
     NODE_DISPLAY_NAME_MAPPINGS = {}
     WEB_DIRECTORY = None # Do not serve web directory if backend failed

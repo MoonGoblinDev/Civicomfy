@@ -1,11 +1,11 @@
 // ComfyUI_Civitai_Downloader/web/js/civitaiDownloader.js
 // Paste the complete Javascript content below
 
-// Civitai Downloader UI for ComfyUI
+// Civicomfy UI for ComfyUI
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("Loading Civitai Downloader UI...");
+console.log("Loading Civicomfy UI...");
 
 // --- Configuration ---
 const EXTENSION_NAME = "Civicomfy"; // Matches Python WEB_DIRECTORY
@@ -66,27 +66,27 @@ function addMenuButton() {
     const buttonGroup = document.querySelector(".comfyui-button-group");
 
     if (!buttonGroup) {
-        console.warn("[Civitai DL] ComfyUI button group (.comfyui-button-group) not found yet. Retrying...");
+        console.warn("[Civicomfy] ComfyUI button group (.comfyui-button-group) not found yet. Retrying...");
         setTimeout(addMenuButton, 500); // Retry after a short delay
         return;
     }
 
     // Prevent adding the button multiple times if script re-runs or retries
     if (document.getElementById("civitai-downloader-button")) {
-        console.log("[Civitai DL] Button already exists.");
+        console.log("[Civicomfy] Button already exists.");
         return;
     }
 
     const civitaiButton = document.createElement("button");
-    civitaiButton.textContent = "Civitai DL"; // Shorter text fits better in the group
+    civitaiButton.textContent = "Civicomfy"; // Shorter text fits better in the group
     civitaiButton.id = "civitai-downloader-button";
     // Optional: Add Tooltip
-    civitaiButton.title = "Open Civitai Downloader";
+    civitaiButton.title = "Open Civicomfy";
 
     civitaiButton.onclick = () => {
         // Initialize the UI class instance on the first click
         if (!window.civitaiDownloaderUI) {
-            console.info("[Civitai DL] Initializing CivitaiDownloaderUI...");
+            console.info("[Civicomfy] Initializing CivitaiDownloaderUI...");
             window.civitaiDownloaderUI = new CivitaiDownloaderUI();
             // Append the modal structure to the document body ONCE upon initialization
             document.body.appendChild(window.civitaiDownloaderUI.modal);
@@ -100,12 +100,12 @@ function addMenuButton() {
 
     // Append the new button to the main button group
     buttonGroup.appendChild(civitaiButton);
-    console.log("[Civitai DL] Civitai Downloader button added to .comfyui-button-group.");
+    console.log("[Civicomfy] Civicomfy button added to .comfyui-button-group.");
 
     // Fallback (less likely needed, but safe): If appending failed but menu exists, add to menu
     const menu = document.querySelector(".comfy-menu");
     if (!buttonGroup.contains(civitaiButton) && menu && !menu.contains(civitaiButton)) {
-        console.warn("[Civitai DL] Failed to append button to group, falling back to menu.");
+        console.warn("[Civicomfy] Failed to append button to group, falling back to menu.");
          // Insert before settings as a last resort if group append failed
         const settingsButton = menu.querySelector("#comfy-settings-button");
         if (settingsButton) {
@@ -239,9 +239,9 @@ class CivitaiDownloaderUI {
     }
 
     loadAndApplySettings() {
-        console.log("[Civitai DL] Loading settings...");
+        console.log("[Civicomfy] Loading settings...");
         this.settings = this.loadSettingsFromCookie(); // Load from cookie or get defaults
-        console.log("[Civitai DL] Applying settings...", this.settings);
+        console.log("[Civicomfy] Applying settings...", this.settings);
         this.applySettings(); // Apply loaded settings to UI
     }
 
@@ -253,7 +253,7 @@ class CivitaiDownloaderUI {
             try {
                 const loadedSettings = JSON.parse(cookieValue);
                 // Merge defaults with loaded to ensure all keys exist
-                console.log("[Civitai DL] Settings loaded from cookie:", loadedSettings);
+                console.log("[Civicomfy] Settings loaded from cookie:", loadedSettings);
                 return { ...defaults, ...loadedSettings };
             } catch (e) {
                 console.error("Failed to parse settings cookie:", e);
@@ -262,7 +262,7 @@ class CivitaiDownloaderUI {
                 return defaults; // Fallback to defaults
             }
         } else {
-            console.log("[Civitai DL] No settings cookie found, using defaults.");
+            console.log("[Civicomfy] No settings cookie found, using defaults.");
             return defaults; // No cookie, use defaults
         }
     }
@@ -271,7 +271,7 @@ class CivitaiDownloaderUI {
         try {
             const settingsString = JSON.stringify(this.settings);
             setCookie(SETTINGS_COOKIE_NAME, settingsString, 365); // Save for 1 year
-            console.log("[Civitai DL] Settings saved to cookie:", this.settings);
+            console.log("[Civicomfy] Settings saved to cookie:", this.settings);
             this.showToast('Settings saved successfully!', 'success');
         } catch (e) {
             console.error("Failed to save settings to cookie:", e);
@@ -305,7 +305,7 @@ class CivitaiDownloaderUI {
                  this.downloadModelTypeSelect.value = this.settings.defaultModelType || 'checkpoint';
             } else {
                  // If types not loaded, might need to re-apply later in populateModelTypes
-                 console.warn("[Civitai DL] Cannot apply default model type yet, types not loaded.");
+                 console.warn("[Civicomfy] Cannot apply default model type yet, types not loaded.");
             }
         }
 
@@ -325,7 +325,7 @@ class CivitaiDownloaderUI {
         this.modal.innerHTML = `
             <div class="civitai-downloader-modal-content">
                 <div class="civitai-downloader-header">
-                    <h2>Civitai Downloader</h2>
+                    <h2>Civicomfy</h2>
                     <button class="civitai-close-button" id="civitai-close-modal">&times;</button>
                 </div>
                 <div class="civitai-downloader-body">
@@ -709,7 +709,7 @@ class CivitaiDownloaderUI {
     }
 
     async populateModelTypes() {
-        console.log("[Civitai DL] Populating model types...");
+        console.log("[Civicomfy] Populating model types...");
         try {
             const types = await CivitaiDownloaderAPI.getModelTypes();
             // Basic validation
@@ -718,7 +718,7 @@ class CivitaiDownloaderUI {
             }
 
             this.modelTypes = types; // Store for later use { "lora": "Lora", ... }
-            console.log("[Civitai DL] Model types fetched:", this.modelTypes);
+            console.log("[Civicomfy] Model types fetched:", this.modelTypes);
 
             // Clear existing options first
             this.downloadModelTypeSelect.innerHTML = '';
@@ -741,7 +741,7 @@ class CivitaiDownloaderUI {
                 this.searchTypeSelect.appendChild(option.cloneNode(true));
             });
 
-            console.log("[Civitai DL] Model type dropdowns populated.");
+            console.log("[Civicomfy] Model type dropdowns populated.");
 
             // Set default selected values based on loaded settings AFTER populating
             // Use try-catch as the stored setting might be invalid if types changed
@@ -763,7 +763,7 @@ class CivitaiDownloaderUI {
             } catch (e) { console.error("Error setting default type in download tab:", e); }
 
         } catch (error) {
-            console.error("[Civitai DL] Failed to get or populate model types:", error);
+            console.error("[Civicomfy] Failed to get or populate model types:", error);
             this.showToast('Failed to load model types', 'error');
             // Add placeholder default options if API fails
             this.downloadModelTypeSelect.innerHTML = '<option value="checkpoint">Checkpoint (Default)</option>';
@@ -970,7 +970,7 @@ class CivitaiDownloaderUI {
 
     startStatusUpdates() {
         if (!this.statusInterval) {
-             console.log("[Civitai DL] Starting status updates (every 3s)...");
+             console.log("[Civicomfy] Starting status updates (every 3s)...");
             this.updateStatus(); // Initial update immediately
             this.statusInterval = setInterval(() => this.updateStatus(), 3000); // Update every 3 seconds
         }
@@ -980,7 +980,7 @@ class CivitaiDownloaderUI {
         if (this.statusInterval) {
             clearInterval(this.statusInterval);
             this.statusInterval = null;
-             console.log("[Civitai DL] Stopped status updates.");
+             console.log("[Civicomfy] Stopped status updates.");
         }
     }
 
@@ -988,7 +988,7 @@ class CivitaiDownloaderUI {
          // Only fetch if the modal is open, saves background requests when not needed
          if (!this.modal || !this.modal.classList.contains('open')) {
              // Optionally stop polling entirely if closed? Handled by open/closeModal now.
-             // console.log("[Civitai DL] Modal closed, skipping status update fetch.");
+             // console.log("[Civicomfy] Modal closed, skipping status update fetch.");
              return;
          }
 
@@ -1009,21 +1009,21 @@ class CivitaiDownloaderUI {
 
                     // Only re-render lists if the status tab is currently active AND data changed
                     if (this.activeTab === 'status' && changed) {
-                        // console.log("[Civitai DL] Status data changed, re-rendering lists.");
+                        // console.log("[Civicomfy] Status data changed, re-rendering lists.");
                         this.renderDownloadList(this.statusData.active, this.activeListContainer, 'No active downloads.');
                         this.renderDownloadList(this.statusData.queue, this.queuedListContainer, 'Download queue is empty.');
                         this.renderDownloadList(this.statusData.history, this.historyListContainer, 'No download history yet.');
                     } else if (this.activeTab === 'status' && !changed) {
-                         // console.log("[Civitai DL] Status data unchanged, skipping re-render.");
+                         // console.log("[Civicomfy] Status data unchanged, skipping re-render.");
                     }
 
              } else {
-                  console.warn("[Civitai DL] Received invalid status data structure:", newStatusData);
+                  console.warn("[Civicomfy] Received invalid status data structure:", newStatusData);
                    // Optionally clear lists or show error if structure is wrong?
              }
 
         } catch (error) {
-            console.error("[Civitai DL] Failed to update status:", error);
+            console.error("[Civicomfy] Failed to update status:", error);
             // Show error message ON the status tab if it's active
              if (this.activeTab === 'status') {
                  const errorHtml = `<p style="color: var(--error-text, #ff6b6b);">Failed to load status: ${error.details || error.message}</p>`;
@@ -1400,7 +1400,7 @@ class CivitaiDownloaderUI {
 
     openModal() {
         if (!this.modal) {
-            console.error("[Civitai DL] Modal element not found for opening!");
+            console.error("[Civicomfy] Modal element not found for opening!");
             return;
         }
         this.modal.classList.add('open');
@@ -1426,7 +1426,7 @@ class CivitaiDownloaderUI {
      // --- Toast Notifications ---
      showToast(message, type = 'info', duration = 3000) {
         if (!this.toastElement) {
-             console.warn("[Civitai DL] Toast element not found.");
+             console.warn("[Civicomfy] Toast element not found.");
              return;
         }
 
@@ -1469,7 +1469,7 @@ class CivitaiDownloaderUI {
              faLink.crossOrigin = 'anonymous';
              faLink.referrerPolicy = 'no-referrer';
              document.head.appendChild(faLink);
-             console.log("[Civitai DL] FontAwesome loaded.");
+             console.log("[Civicomfy] FontAwesome loaded.");
          }
      }
 
@@ -1490,13 +1490,13 @@ app.registerExtension({
          // Pre-check for placeholder image availability (optional, purely visual feedback)
          fetch(PLACEHOLDER_IMAGE_URL).then(res => {
             if (!res.ok) {
-                console.warn(`[Civitai DL] Placeholder image not found at ${PLACEHOLDER_IMAGE_URL}. UI elements might lack default images.`);
+                console.warn(`[Civicomfy] Placeholder image not found at ${PLACEHOLDER_IMAGE_URL}. UI elements might lack default images.`);
             } else {
-                 // console.log(`[Civitai DL] Placeholder image OK at ${PLACEHOLDER_IMAGE_URL}`);
+                 // console.log(`[Civicomfy] Placeholder image OK at ${PLACEHOLDER_IMAGE_URL}`);
             }
-        }).catch(err => console.warn("[Civitai DL] Error checking for placeholder image:", err));
+        }).catch(err => console.warn("[Civicomfy] Error checking for placeholder image:", err));
 
-         console.log("[Civitai DL] Extension setup complete. Button added.");
+         console.log("[Civicomfy] Extension setup complete. Button added.");
 	},
     // Optional: Add startup method if needed after nodes/graph is ready
     // async loadedGraphNode(node, app) { }
@@ -1504,5 +1504,5 @@ app.registerExtension({
 });
 
 // NOTE: The CivitaiDownloaderUI instance is now created lazily when the
-// "Civitai DL" button is first clicked in the addMenuButton function.
+// "Civicomfy" button is first clicked in the addMenuButton function.
 // Settings loading and populating dropdowns happens at that point.

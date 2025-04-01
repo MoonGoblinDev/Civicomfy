@@ -68,13 +68,13 @@ try:
     _other_relative_path = MODEL_TYPE_DIRS["other"][1]
     _other_full_path = os.path.join(MODELS_DIR, _other_relative_path)
     os.makedirs(_other_full_path, exist_ok=True)
-    print(f"[Civitai Downloader Config] Ensured 'other' model directory exists: {_other_full_path}")
+    print(f"[Civicomfy Config] Ensured 'other' model directory exists: {_other_full_path}")
 except Exception as e:
-    print(f"[Civitai Downloader Config] Warning: Failed to create 'other' model directory: {e}")
+    print(f"[Civicomfy Config] Warning: Failed to create 'other' model directory: {e}")
 
 # --- Log Initial Paths for Verification ---
 print("-" * 30)
-print("[Civitai Downloader Config Initialized]")
+print("[Civicomfy Config Initialized]")
 print(f"  - Plugin Root: {PLUGIN_ROOT}")
 print(f"  - Web Directory: {WEB_DIRECTORY}")
 print(f"  - ComfyUI Models Dir: {MODELS_DIR}")
