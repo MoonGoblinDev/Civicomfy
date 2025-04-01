@@ -1099,7 +1099,7 @@ class CivitaiDownloaderUI {
              const size = item.known_size !== undefined && item.known_size !== null ? item.known_size : (item.file_size || 0); // Prioritize known_size, fallback to file_size
              const downloadedBytes = size > 0 ? size * (progress / 100) : 0;
              const errorMsg = item.error || null;
-             const modelName = item.model_name || 'Unknown Model';
+             const modelName = item.model_name || item.model.name;
              const versionName = item.version_name || 'Unknown Version';
              const filename = item.filename || 'N/A';
              const addedTime = item.added_time || null;

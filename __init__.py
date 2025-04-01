@@ -1,4 +1,7 @@
-# ComfyUI_Civitai_Downloader/__init__.py
+# ================================================
+# File: __init__.py
+# ================================================
+# Civicomfy/__init__.py
 
 import os
 
@@ -6,11 +9,11 @@ import os
 EXTENSION_ROOT = os.path.dirname(os.path.realpath(__file__))
 WEB_PATH = os.path.join(EXTENSION_ROOT, "web")
 JS_PATH = os.path.join(WEB_PATH, "js")
-CSS_PATH = os.path.join(JS_PATH, "css")
+CSS_PATH = os.path.join(JS_PATH, "css") 
 JS_FILENAME = "civitaiDownloader.js"
 CSS_FILENAME = "civitaiDownloader.css"
 JS_FILE_PATH = os.path.join(JS_PATH, JS_FILENAME)
-CSS_FILE_PATH = os.path.join(JS_PATH, CSS_FILENAME)
+CSS_FILE_PATH = os.path.join(JS_PATH, CSS_FILENAME) 
 
 # --- Import Core Components ---
 # Import configurations and utility functions first
@@ -48,7 +51,7 @@ if not os.path.exists(CSS_FILE_PATH):
     print(f"[Civicomfy] WARNING: Frontend CSS file not found!")
     print(f"                         Expected at: {CSS_FILE_PATH}")
     print("                         The downloader UI may not display correctly.")
-    print("                         Please ensure 'civitaiDownloader.css' is placed in the 'web/css' directory.")
+    print(f"                         Please ensure '{CSS_FILENAME}' is placed in the '{os.path.basename(CSS_PATH)}' directory inside 'web'.") # Updated path hint
     print("*"*80)
     frontend_files_ok = False
 
@@ -57,7 +60,7 @@ if not os.path.exists(JS_FILE_PATH):
     print(f"[Civicomfy] WARNING: Frontend JavaScript file not found!")
     print(f"                         Expected at: {JS_FILE_PATH}")
     print("                         The downloader UI functionality will be missing.")
-    print("                         Please ensure 'civitaiDownloader.js' is placed in the 'web/js' directory.")
+    print(f"                         Please ensure '{JS_FILENAME}' is placed in the '{os.path.basename(JS_PATH)}' directory inside 'web'.") # Updated path hint
     print("*"*80)
     frontend_files_ok = False
 
@@ -69,7 +72,7 @@ if imports_successful:
     NODE_DISPLAY_NAME_MAPPINGS = {}
 
     # Define the web directory for ComfyUI to serve
-    # The key is the path component in the URL: /extensions/ComfyUI_Civitai_Downloader/...
+    # The key is the path component in the URL: /extensions/Civicomfy/...
     # The value is the directory path relative to this __init__.py file
     WEB_DIRECTORY = "./web" # This tells ComfyUI to serve the ./web folder relative to this file
 

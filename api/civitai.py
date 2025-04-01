@@ -1,5 +1,5 @@
 # ================================================
-# File: api/civitai.py (Updated)
+# File: api/civitai.py
 # ================================================
 import requests
 import json
@@ -92,8 +92,6 @@ class CivitaiAPI:
         if isinstance(result, dict) and "error" in result:
             return result
         return result
-
-    # REMOVED get_download_url method - URL is directly in version info 'files'
 
     def search_models(self, query: str, types: Optional[List[str]] = None,
                       sort: str = 'Highest Rated', period: str = 'AllTime',

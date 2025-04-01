@@ -1,4 +1,7 @@
-# ComfyUI_Civitai_Downloader/config.py
+# ================================================
+# File: config.py
+# ================================================
+# Civicomfy/config.py
 import os
 import folder_paths # Use ComfyUI's folder_paths
 
@@ -7,6 +10,9 @@ MAX_CONCURRENT_DOWNLOADS = 3
 DEFAULT_CHUNK_SIZE = 1024 * 1024  # 1MB
 DEFAULT_CONNECTIONS = 4
 DOWNLOAD_HISTORY_LIMIT = 100
+DOWNLOAD_TIMEOUT = 60 # Timeout for individual download chunks/requests (seconds)
+HEAD_REQUEST_TIMEOUT = 25 # Timeout for initial HEAD request (seconds)
+METADATA_DOWNLOAD_TIMEOUT = 20 # Timeout for downloading thumbnail (seconds)
 
 # --- Paths ---
 # The root directory of *this specific plugin/extension*
@@ -39,7 +45,7 @@ MODEL_TYPE_DIRS = {
     "motionmodule": ("Motion Module", "motion_models"),
     "poses": ("Poses", "poses"), # Saved inside models/poses
     "wildcards": ("Wildcards", "wildcards"), # Often saved outside models dir, but can be here too
-    # Place 'other' in a dedicated subfolder WITHIN the ComfyUI_Civitai_Downloader node folder
+    # Place 'other' in a dedicated subfolder WITHIN the Civicomfy node folder
     # This keeps downloaded files associated with this node separate if type is unknown.
     # The path here is RELATIVE to MODELS_DIR.
     "other": ("Other", os.path.join("custom_nodes", os.path.basename(PLUGIN_ROOT), "other_models"))
@@ -62,6 +68,10 @@ CIVITAI_API_TYPE_MAP = {
     # "upscaler": None, # Upscalers aren't typically a primary search type on Civitai
     # "other": None,
 }
+
+# --- Filename Suffixes ---
+METADATA_SUFFIX = ".cminfo.json"
+PREVIEW_SUFFIX = ".preview.jpeg" # Keep as requested, even if source is png/webp
 
 # Ensure 'other' directory exists (using the path relative to MODELS_DIR)
 try:
