@@ -1,6 +1,6 @@
 // ComfyUI_Civitai_Downloader/web/js/civitaiDownloader.js
 // Paste the complete Javascript content below
-// REMEMBER to change placeholder image paths to /extensions/...
+// REMEMBER to change placeholder image paths to /extensions/... <<< THIS REMINDER IS NOW OUTDATED/INCORRECT
 
 // Civitai Downloader UI for ComfyUI
 import { app } from "../../../scripts/app.js";
@@ -8,8 +8,25 @@ import { api } from "../../../scripts/api.js";
 
 console.log("Loading Civitai Downloader UI...");
 
+// --- Configuration ---
+// !! IMPORTANT: This should match the name of your extension's folder !!
+const EXTENSION_NAME = "Civicomfy";
+const CSS_URL = `./civitaiDownloader.css`;
+const PLACEHOLDER_IMAGE_URL = `./placeholder.png`;
+
+// --- CSS Injection ---
+function addCssLink() {
+    const cssPath = import.meta.resolve(CSS_URL);
+	//console.log(cssPath);
+	const $link = document.createElement("link");
+	$link.setAttribute("rel", 'stylesheet');
+	$link.setAttribute("href", cssPath);
+	document.head.appendChild($link);
+}
+
 // Add Menu Button to ComfyUI
 function addMenuButton() {
+    
     // Target the main button group directly
     const buttonGroup = document.querySelector(".comfyui-button-group");
 
@@ -194,6 +211,7 @@ class CivitaiDownloaderUI {
         this.modal = document.createElement('div');
         this.modal.className = 'civitai-downloader-modal';
         this.modal.id = 'civitai-downloader-modal';
+        // HTML structure remains the same
         this.modal.innerHTML = `
             <div class="civitai-downloader-modal-content">
                 <div class="civitai-downloader-header">
@@ -608,7 +626,7 @@ class CivitaiDownloaderUI {
         this.searchSubmitButton.disabled = true;
         this.searchSubmitButton.textContent = 'Searching...';
         this.searchResultsContainer.innerHTML = '<p>Searching...</p>'; // Indicate loading
-         this.searchPaginationContainer.innerHTML = ''; // Clear old pagination
+        this.searchPaginationContainer.innerHTML = ''; // Clear old pagination
 
         const params = {
             query: this.searchQueryInput.value,
@@ -674,7 +692,7 @@ class CivitaiDownloaderUI {
         if (!this.statusInterval) {
             this.updateStatus(); // Initial update
             this.statusInterval = setInterval(() => this.updateStatus(), 3000); // Update every 3 seconds
-             console.log("Started status updates timer.");
+             console.log("[Civitai DL] Started status updates timer.");
         }
     }
 
@@ -682,7 +700,7 @@ class CivitaiDownloaderUI {
         if (this.statusInterval) {
             clearInterval(this.statusInterval);
             this.statusInterval = null;
-             console.log("Stopped status updates timer.");
+             console.log("[Civitai DL] Stopped status updates timer.");
         }
     }
 
@@ -779,13 +797,16 @@ class CivitaiDownloaderUI {
                  case 'starting': statusText = 'Starting...'; break;
              }
 
-             // Use the corrected placeholder path
-             const placeholder = '/extensions/ComfyUI_Civitai_Downloader/placeholder.png';
-             const thumbSrc = item.thumbnail || placeholder;
+             // Use the placeholder URL defined at the top
+             const placeholder = PLACEHOLDER_IMAGE_URL;
+             const thumbSrc = item.thumbnail || placeholder; // Use item.thumbnail if available, otherwise fallback
+
+             // Construct the onerror attribute correctly
+             const onErrorScript = `this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';`;
 
             html += `
                 <div class="civitai-download-item" data-id="${item.id}">
-                    <img src="${thumbSrc}" alt="thumbnail" class="civitai-download-thumbnail" onerror="this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';">
+                    <img src="${thumbSrc}" alt="thumbnail" class="civitai-download-thumbnail" onerror="${onErrorScript}">
                     <div class="civitai-download-info">
                         <strong>${item.model_name || 'Unknown Model'}</strong>
                         <p>Version: ${item.version_name || 'Unknown'}</p>
@@ -830,8 +851,9 @@ class CivitaiDownloaderUI {
             return;
         }
 
-         // Use the corrected placeholder path
-        const placeholder = '/extensions/ComfyUI_Civitai_Downloader/placeholder.png';
+         // Use the placeholder URL defined at the top
+        const placeholder = PLACEHOLDER_IMAGE_URL;
+        const onErrorScript = `this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';`;
         let html = '';
         results.items.forEach(item => {
             const version = item.modelVersions && item.modelVersions[0] ? item.modelVersions[0] : {};
@@ -842,7 +864,7 @@ class CivitaiDownloaderUI {
 
             html += `
                 <div class="civitai-search-item" data-model-id="${item.id}">
-                    <img src="${thumbnailUrl}" alt="${item.name} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';">
+                    <img src="${thumbnailUrl}" alt="${item.name} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
                     <div class="civitai-search-info">
                         <h4>${item.name}</h4>
                         <p>by ${item.creator?.username || 'Unknown Creator'} | Type: ${item.type || 'Unknown'}</p>
@@ -915,7 +937,7 @@ class CivitaiDownloaderUI {
             }
         }
 
-        for (let i = startPage; i <= endPage; i++) {
+        for (let i = startPage; i <= endP; i++) {
             paginationHTML += `<button class="civitai-button small civitai-page-button ${i === currentPage ? 'primary active' : ''}" data-page="${i}">${i}</button>`; // Add active class
         }
 
@@ -981,16 +1003,22 @@ class CivitaiDownloaderUI {
 // --- Initialization ---
 // Use app ready event to ensure ComfyUI is loaded
 app.registerExtension({
-	name: "Comfy.CivitaiDownloader",
+	name: "Civicomfy", // Matches the Python WEB_DIRECTORY value
 	async setup(appInstance) {
+
+         // ---> NEW: Inject the CSS file <---
+         addCssLink();
+
          // Add the menu button
          addMenuButton();
 
-         // Check for placeholder image (optional, purely visual)
-         const placeholderSrc = '/extensions/ComfyUI_Civitai_Downloader/placeholder.png';
-         fetch(placeholderSrc).then(res => {
+         // Check for placeholder image availability (optional, purely visual check)
+         // Uses the new URL structure
+         fetch(PLACEHOLDER_IMAGE_URL).then(res => {
             if (!res.ok) {
-                console.log("[Civitai Downloader] Placeholder image not found, UI elements might lack default images.");
+                console.warn(`[Civitai Downloader] Placeholder image not found at ${PLACEHOLDER_IMAGE_URL}. UI elements might lack default images.`);
+            } else {
+                 console.log(`[Civitai Downloader] Placeholder image OK at ${PLACEHOLDER_IMAGE_URL}`);
             }
         }).catch(err => console.warn("[Civitai Downloader] Error checking for placeholder image:", err));
 
