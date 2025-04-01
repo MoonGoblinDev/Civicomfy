@@ -1,0 +1,82 @@
+# ComfyUI_Civitai_Downloader/config.py
+import os
+import folder_paths # Use ComfyUI's folder_paths
+
+# --- Configuration ---
+MAX_CONCURRENT_DOWNLOADS = 3
+DEFAULT_CHUNK_SIZE = 1024 * 1024  # 1MB
+DEFAULT_CONNECTIONS = 4
+DOWNLOAD_HISTORY_LIMIT = 100
+
+# --- Paths ---
+# The root directory of *this specific plugin/extension*
+# Calculated based on the location of this config.py file
+PLUGIN_ROOT = os.path.dirname(os.path.realpath(__file__))
+
+# Construct web paths relative to the plugin's root directory
+WEB_DIRECTORY = os.path.join(PLUGIN_ROOT, "web")
+JAVASCRIPT_PATH = os.path.join(WEB_DIRECTORY, "js")
+CSS_PATH = os.path.join(WEB_DIRECTORY, "css")
+PLACEHOLDER_IMAGE_PATH = os.path.join(WEB_DIRECTORY, "placeholder.png")
+
+# Get ComfyUI directories using folder_paths
+COMFYUI_ROOT_DIR = folder_paths.base_path
+MODELS_DIR = folder_paths.models_dir # Base 'models' directory
+
+# --- Model Types ---
+# Maps the internal key (lowercase) to a tuple: (display_name, subfolder_name)
+# The subfolder_name is relative to the ComfyUI MODELS_DIR.
+MODEL_TYPE_DIRS = {
+    "checkpoint": ("Checkpoint", "checkpoints"),
+    "lora": ("Lora", "loras"),
+    "locon": ("LoCon", "loras"), # Often grouped with LORAs
+    "lycoris": ("LyCORIS", "loras"), # Sometimes grouped with LORAs
+    "vae": ("VAE", "vae"),
+    "embedding": ("Embedding", "embeddings"),
+    "hypernetwork": ("Hypernetwork", "hypernetworks"),
+    "controlnet": ("ControlNet", "controlnet"),
+    "upscaler": ("Upscaler", "upscale_models"),
+    "motionmodule": ("Motion Module", "motion_models"),
+    "poses": ("Poses", "poses"), # Saved inside models/poses
+    "wildcards": ("Wildcards", "wildcards"), # Often saved outside models dir, but can be here too
+    # Place 'other' in a dedicated subfolder WITHIN the ComfyUI_Civitai_Downloader node folder
+    # This keeps downloaded files associated with this node separate if type is unknown.
+    # The path here is RELATIVE to MODELS_DIR.
+    "other": ("Other", os.path.join("custom_nodes", os.path.basename(PLUGIN_ROOT), "other_models"))
+}
+
+# Civitai API specific type mapping (for search filters)
+# Maps internal key (lowercase) to Civitai API 'types' parameter value
+CIVITAI_API_TYPE_MAP = {
+    "checkpoint": "Checkpoint",
+    "lora": "LORA",
+    "locon": "LoCon",
+    "lycoris": "LORA", # Civitai might group LyCORIS under LORA search type
+    "vae": "VAE",
+    "embedding": "TextualInversion",
+    "hypernetwork": "Hypernetwork",
+    "controlnet": "Controlnet",
+    "motionmodule": "MotionModule",
+    "poses": "Poses",
+    "wildcards": "Wildcards",
+    # "upscaler": None, # Upscalers aren't typically a primary search type on Civitai
+    # "other": None,
+}
+
+# Ensure 'other' directory exists (using the path relative to MODELS_DIR)
+try:
+    _other_relative_path = MODEL_TYPE_DIRS["other"][1]
+    _other_full_path = os.path.join(MODELS_DIR, _other_relative_path)
+    os.makedirs(_other_full_path, exist_ok=True)
+    print(f"[Civitai Downloader Config] Ensured 'other' model directory exists: {_other_full_path}")
+except Exception as e:
+    print(f"[Civitai Downloader Config] Warning: Failed to create 'other' model directory: {e}")
+
+# --- Log Initial Paths for Verification ---
+print("-" * 30)
+print("[Civitai Downloader Config Initialized]")
+print(f"  - Plugin Root: {PLUGIN_ROOT}")
+print(f"  - Web Directory: {WEB_DIRECTORY}")
+print(f"  - ComfyUI Models Dir: {MODELS_DIR}")
+print(f"  - 'Other' Models Subfolder (relative): {MODEL_TYPE_DIRS['other'][1]}")
+print("-" * 30)

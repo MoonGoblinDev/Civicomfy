@@ -1,0 +1,520 @@
+/* ComfyUI_Civitai_Downloader/web/css/civitaiDownloader.css */
+/* Paste the complete CSS content below */
+
+.civitai-downloader-modal {
+    position: fixed;
+    z-index: 1001; /* Above ComfyUI elements */
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden; /* Prevent body scroll */
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+}
+
+.civitai-downloader-modal.open {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.3s ease, visibility 0s linear 0s;
+}
+
+.civitai-downloader-modal-content {
+    background-color: var(--comfy-menu-bg);
+    color: var(--comfy-text-color);
+    margin: auto;
+    padding: 0; /* Remove padding, handle internally */
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    width: 900px;
+    max-width: 95%;
+    height: 700px; /* Fixed height */
+    max-height: 90vh;
+    display: flex; /* Use flexbox for layout */
+    flex-direction: column; /* Stack header, tabs, content */
+    overflow: hidden; /* Prevent content overflow */
+}
+
+.civitai-downloader-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border-color, #444);
+    flex-shrink: 0; /* Prevent header from shrinking */
+}
+
+.civitai-downloader-header h2 {
+    margin: 0;
+    font-size: 1.3em;
+}
+
+.civitai-close-button {
+    background: none;
+    border: none;
+    color: var(--comfy-text-color);
+    font-size: 28px;
+    cursor: pointer;
+    padding: 0 5px;
+    line-height: 1;
+}
+.civitai-close-button:hover {
+    color: #aaa;
+}
+
+.civitai-downloader-body {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1; /* Allow body to take remaining space */
+    overflow: hidden; /* Manage internal scrolling */
+}
+
+.civitai-downloader-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-color, #444);
+    padding: 0 15px;
+    flex-shrink: 0; /* Prevent tabs from shrinking */
+}
+
+.civitai-downloader-tab {
+    padding: 10px 18px;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: var(--comfy-text-color);
+    opacity: 0.7;
+    position: relative;
+    top: 1px; /* Align with bottom border */
+    margin-bottom: -1px; /* Overlap border */
+}
+
+.civitai-downloader-tab.active {
+    opacity: 1;
+    border-bottom: 3px solid var(--accent-color, #5c8aff);
+    font-weight: bold;
+}
+.civitai-downloader-tab:hover {
+    opacity: 1;
+}
+
+.civitai-downloader-tab-content {
+    display: none;
+    padding: 20px;
+    flex-grow: 1; /* Allow content to take space */
+    overflow-y: auto; /* Enable scrolling ONLY for the content area */
+}
+
+.civitai-downloader-tab-content.active {
+    display: block; /* Show active tab */
+}
+
+.civitai-form-group {
+    margin-bottom: 18px;
+}
+.civitai-form-group:last-child {
+    margin-bottom: 0;
+}
+
+.civitai-form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: bold;
+    font-size: 0.95em;
+}
+
+.civitai-input,
+.civitai-select {
+    width: 100%;
+    padding: 10px;
+    background-color: var(--comfy-input-bg);
+    color: var(--comfy-text-color);
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    box-sizing: border-box; /* Include padding/border in width */
+}
+.civitai-input:focus,
+.civitai-select:focus {
+    outline: none;
+    border-color: var(--accent-color, #5c8aff);
+    box-shadow: 0 0 0 2px rgba(92, 138, 255, 0.3);
+}
+
+.civitai-form-row {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap; /* Allow wrapping on smaller screens */
+}
+.civitai-form-row > .civitai-form-group {
+    flex: 1; /* Distribute space */
+    min-width: 180px; /* Minimum width before wrapping */
+}
+/* Adjust for checkbox/inline elements */
+.civitai-form-group.inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px; /* Less margin for checkboxes */
+}
+.civitai-form-group.inline label {
+    margin-bottom: 0; /* Remove default bottom margin */
+    order: 1; /* Put label after checkbox */
+}
+.civitai-checkbox {
+    width: auto;
+    order: 0; /* Put checkbox before label */
+    accent-color: var(--accent-color, #5c8aff);
+    transform: scale(1.1);
+}
+
+.civitai-button {
+    background-color: var(--comfy-input-bg);
+    color: var(--comfy-text-color);
+    border: 1px solid var(--border-color, #555);
+    padding: 10px 18px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.civitai-button:hover {
+    background-color: var(--comfy-input-bg-hover);
+    border-color: #777;
+}
+.civitai-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.civitai-button.primary {
+    background-color: var(--accent-color, #5c8aff);
+    border-color: var(--accent-color, #5c8aff);
+    color: white;
+}
+.civitai-button.primary:hover {
+    background-color: #4a7ee0; /* Slightly darker blue */
+    border-color: #4a7ee0;
+}
+.civitai-button.primary:disabled {
+    background-color: var(--accent-color, #5c8aff); /* Keep color but lower opacity */
+    border-color: var(--accent-color, #5c8aff);
+}
+
+.civitai-button.danger {
+    background-color: #e64b4b;
+    border-color: #e64b4b;
+    color: white;
+}
+.civitai-button.danger:hover {
+    background-color: #d93a3a;
+    border-color: #d93a3a;
+}
+.civitai-button.small {
+    padding: 5px 10px;
+    font-size: 0.85em;
+}
+
+/* Status Tab Styling */
+.civitai-status-section {
+    margin-bottom: 25px;
+}
+.civitai-status-section h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    border-bottom: 1px solid var(--border-color, #444);
+    padding-bottom: 8px;
+    font-size: 1.1em;
+}
+
+.civitai-download-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.civitai-download-item {
+    display: flex;
+    gap: 15px;
+    align-items: flex-start; /* Align items top */
+    padding: 15px;
+    border-radius: 6px;
+    background-color: var(--comfy-input-bg); /* Slightly different bg for items */
+    border: 1px solid var(--border-color, #555);
+}
+
+.civitai-download-thumbnail {
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 4px;
+    background-color: #333; /* Placeholder color */
+    flex-shrink: 0; /* Don't shrink thumbnail */
+    margin-top: 3px; /* Align better with text */
+}
+
+.civitai-download-info {
+    flex-grow: 1; /* Allow info to take available space */
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    overflow: hidden; /* Prevent long text overflow */
+}
+.civitai-download-info strong {
+    font-size: 1.05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.civitai-download-info p {
+    margin: 0;
+    font-size: 0.9em;
+    color: #ccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.civitai-download-info .filename {
+   font-style: italic;
+   color: #bbb;
+}
+.civitai-download-info .error-message {
+   color: #ff6b6b;
+   font-size: 0.85em;
+   white-space: normal; /* Allow error message to wrap */
+   word-break: break-word;
+}
+
+.civitai-download-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto; /* Push actions to the right */
+    flex-shrink: 0; /* Don't shrink action buttons */
+}
+
+.civitai-progress-container {
+    margin-top: 8px;
+    width: 100%;
+    background-color: var(--comfy-menu-bg); /* Darker background for contrast */
+    border-radius: 4px;
+    overflow: hidden;
+    height: 20px;
+    border: 1px solid var(--border-color, #555);
+}
+
+.civitai-progress-bar {
+    height: 100%;
+    background-color: var(--accent-color, #5c8aff);
+    text-align: center;
+    color: white;
+    line-height: 20px; /* Center text vertically */
+    font-size: 12px;
+    font-weight: bold;
+    transition: width 0.3s ease-out;
+    min-width: 20px; /* Show something even for 0% */
+    width: 0%; /* Start at 0 */
+    white-space: nowrap;
+    overflow: hidden;
+}
+.civitai-progress-bar.completed {
+    background-color: #4caf50; /* Green for completed */
+}
+.civitai-progress-bar.failed {
+    background-color: #f44336; /* Red for failed */
+}
+.civitai-progress-bar.cancelled {
+    background-color: #9e9e9e; /* Grey for cancelled */
+}
+
+.civitai-speed-indicator {
+    font-size: 0.85em;
+    color: #ccc;
+    margin-top: 4px;
+    text-align: right;
+}
+
+/* Search Tab Styling */
+.civitai-search-controls {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+.civitai-search-controls .civitai-input {
+    flex-grow: 1; /* Let search input take more space */
+}
+.civitai-search-controls .civitai-select {
+    min-width: 150px; /* Min width for dropdowns */
+}
+.civitai-search-controls .civitai-button {
+    align-self: flex-end; /* Align button with bottom of inputs */
+}
+
+.civitai-search-results {
+    margin-top: 20px;
+}
+.civitai-search-item {
+    display: flex;
+    gap: 15px;
+    align-items: flex-start;
+    margin-bottom: 15px;
+    padding: 15px;
+    border-radius: 6px;
+    background-color: var(--comfy-input-bg);
+    border: 1px solid var(--border-color, #555);
+    transition: background-color 0.2s ease;
+}
+/* No hover effect needed as actions are explicit buttons */
+/* .civitai-search-item:hover { */
+/*    background-color: var(--comfy-input-bg-hover); */
+/* } */
+
+.civitai-search-thumbnail {
+    width: 100px; /* Slightly larger for search */
+    height: 100px;
+    object-fit: cover;
+    border-radius: 4px;
+    background-color: #333;
+    flex-shrink: 0;
+}
+
+.civitai-search-info {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    overflow: hidden;
+}
+.civitai-search-info h4 {
+    margin: 0;
+    font-size: 1.1em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.civitai-search-info p {
+    margin: 0;
+    font-size: 0.9em;
+    color: #ccc;
+}
+.civitai-search-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 8px;
+}
+.civitai-search-tag {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #eee;
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 0.8em;
+}
+.civitai-search-stats span {
+    margin-right: 15px;
+    font-size: 0.85em;
+    color: #bbb;
+}
+.civitai-search-stats i { /* If using icons */
+    margin-right: 4px;
+}
+
+.civitai-search-actions {
+    display: flex;
+    flex-direction: column; /* Stack buttons vertically */
+    gap: 8px;
+    align-items: flex-end; /* Align buttons to the right */
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+/* Settings Tab Styling */
+.civitai-settings-container {
+    display: grid;
+    grid-template-columns: 1fr; /* Single column */
+    gap: 20px;
+}
+
+@media (min-width: 768px) {
+    .civitai-settings-container {
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); /* Responsive columns */
+    }
+}
+
+.civitai-settings-section {
+    background-color: var(--comfy-input-bg);
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #555);
+}
+.civitai-settings-section h4 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    border-bottom: 1px solid var(--border-color, #444);
+    padding-bottom: 8px;
+}
+
+.civitai-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 6px;
+    z-index: 1005; /* Above modal */
+    font-size: 0.95em;
+    opacity: 0;
+    transition: opacity 0.3s ease, bottom 0.3s ease;
+    pointer-events: none; /* Don't block clicks */
+}
+
+.civitai-toast.show {
+    opacity: 1;
+    bottom: 30px;
+}
+
+.civitai-toast.success {
+    background-color: rgba(76, 175, 80, 0.9); /* Green */
+}
+
+.civitai-toast.error {
+    background-color: rgba(244, 67, 54, 0.9); /* Red */
+}
+
+.civitai-toast.info {
+    background-color: rgba(33, 150, 243, 0.9); /* Blue */
+}
+
+/* Tooltip Styles */
+[data-tooltip] {
+  position: relative;
+  cursor: help;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 100%;
+  margin-bottom: 5px;
+  background-color: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  z-index: 1010; /* Ensure tooltip is on top */
+}
+[data-tooltip]:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
