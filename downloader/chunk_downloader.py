@@ -1,10 +1,13 @@
-# ComfyUI_Civitai_Downloader/downloader/chunk_downloader.py
+# ================================================
+# File: downloader/chunk_downloader.py (Updated)
+# ================================================
 import requests
 import threading
 import time
 import shutil
 from pathlib import Path
 import os
+from typing import Optional, Dict, Tuple # Added Tuple
 
 # Import manager type hint without circular dependency during type checking
 from typing import TYPE_CHECKING
@@ -21,7 +24,7 @@ class ChunkDownloader:
 
     def __init__(self, url: str, output_path: str, num_connections: int = 4,
                  chunk_size: int = DEFAULT_CHUNK_SIZE, manager: 'DownloadManager' = None,
-                 download_id: str = None):
+                 download_id: str = None, api_key: Optional[str] = None): # Added api_key
         self.url: str = url
         self.output_path: Path = Path(output_path)
         self.temp_dir: Path = self.output_path.parent / f".{self.output_path.name}.parts_{download_id or int(time.time())}"
@@ -29,6 +32,7 @@ class ChunkDownloader:
         self.chunk_size: int = chunk_size # Chunk size for reading response content
         self.manager: 'DownloadManager' = manager
         self.download_id: str = download_id
+        self.api_key: Optional[str] = api_key # Store API key
 
         self.total_size: int = 0
         self.downloaded: int = 0
@@ -42,6 +46,18 @@ class ChunkDownloader:
         self._last_update_time: float = 0
         self._last_downloaded_bytes: int = 0
         self._speed: float = 0
+
+    def _get_request_headers(self, range_header: bool = False) -> Dict[str, str]:
+        """Constructs headers, adding Authorization if api_key exists."""
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+            # print(f"[Downloader {self.download_id}] Using API Key for download request.") # Optional: Verbose log
+        if range_header: # Placeholder, range is added specifically where needed
+            pass
+        # Add other headers if needed, e.g., User-Agent?
+        # headers["User-Agent"] = "ComfyUI-Civitai-Downloader/1.0"
+        return headers
 
     @property
     def is_cancelled(self) -> bool:
@@ -71,29 +87,41 @@ class ChunkDownloader:
              except Exception as e:
                   print(f"Warning: Could not remove incomplete output file {self.output_path}: {e}")
 
-    def get_file_info(self) -> tuple[int, bool]:
+    def get_file_info(self) -> Tuple[int, bool]:
         """Get the size of the file and check for range support."""
         try:
+            request_headers = self._get_request_headers()
+            # Add range header specifically for this check
+            request_headers['Range'] = 'bytes=0-0'
+
             # Use HEAD request with a Range header to check for range support more reliably
-            response = requests.head(self.url, allow_redirects=True, timeout=20, headers={'Range': 'bytes=0-0'})
+            response = requests.head(self.url, allow_redirects=True, timeout=20, headers=request_headers)
             response.raise_for_status()
 
             # Follow redirects if needed (requests.head handles this automatically if allow_redirects=True)
             self.url = response.url # Update URL to the final destination after redirects
 
             size = int(response.headers.get('content-length', 0))
-            # Check if 'bytes' is explicitly in accept-ranges or if content-range is returned for 0-0 request
+            # Check if 'bytes' is explicitly in accept-ranges OR if content-range is returned for 0-0 request
             accept_ranges = response.headers.get('accept-ranges', 'none').lower() == 'bytes'
             content_range = response.headers.get('content-range', None)
             range_supported = accept_ranges or (content_range is not None and content_range.startswith('bytes'))
 
             if size <= 0:
-                 print("Warning: Reported file size is 0 or missing.")
+                 print(f"[Downloader {self.download_id}] Warning: Reported file size is 0 or missing from HEAD request for {self.url}")
                  # Optionally try GET request to double check size? For now, trust HEAD.
 
+            print(f"[Downloader {self.download_id}] File Info - Size: {size}, Range Support: {range_supported}, Final URL: {self.url}")
             return size, range_supported
+
         except requests.exceptions.RequestException as e:
             self.error = f"Failed to get file info: {e}"
+             # Check for 401/403 specifically
+            if hasattr(e, 'response') and e.response is not None:
+                 if e.response.status_code == 401:
+                     self.error += " (Unauthorized - Check API Key?)"
+                 elif e.response.status_code == 403:
+                     self.error += " (Forbidden - Permissions Issue?)"
             print(f"[Downloader Error {self.download_id}] {self.error}")
             return 0, False
         except Exception as e:
@@ -109,7 +137,7 @@ class ChunkDownloader:
             time_diff = current_time - self._last_update_time
 
             # Update speed and notify manager periodically
-            if time_diff >= self.STATUS_UPDATE_INTERVAL:
+            if time_diff >= self.STATUS_UPDATE_INTERVAL or self.downloaded == self.total_size: # Update on completion too
                 bytes_diff = self.downloaded - self._last_downloaded_bytes
                 self._speed = bytes_diff / time_diff if time_diff > 0 else 0
 
@@ -128,15 +156,17 @@ class ChunkDownloader:
     def download_segment(self, segment_index: int, start_byte: int, end_byte: int):
         """Downloads a specific segment of the file."""
         part_file_path = self.temp_dir / f"part_{segment_index}"
-        headers = {'Range': f'bytes={start_byte}-{end_byte}'}
+        request_headers = self._get_request_headers() # Get base headers (incl auth)
+        request_headers['Range'] = f'bytes={start_byte}-{end_byte}' # Add range
         retries = 3
         current_try = 0
-        segment_url = self.url # Use the potentially redirected URL
+        segment_url = self.url # Use the potentially redirected URL obtained from get_file_info
 
         while current_try < retries and not self.is_cancelled:
+            response = None # Define outside try block
             try:
                 # print(f"Thread {segment_index}: Requesting range {start_byte}-{end_byte} from {segment_url}")
-                response = requests.get(segment_url, headers=headers, stream=True, timeout=60) # Longer timeout for active download
+                response = requests.get(segment_url, headers=request_headers, stream=True, timeout=60) # Longer timeout for active download
                 response.raise_for_status()
 
                 bytes_written_this_segment = 0
@@ -154,16 +184,24 @@ class ChunkDownloader:
                 # Verify segment size after download completes
                 expected_size = (end_byte - start_byte) + 1
                 if bytes_written_this_segment != expected_size:
-                   # This might happen with flaky connections, retry?
-                    raise ValueError(f"Size mismatch. Expected {expected_size}, got {bytes_written_this_segment}")
+                   # This might happen with flaky connections, retry
+                   response.close() # Close connection before retry
+                   raise ValueError(f"Size mismatch. Expected {expected_size}, got {bytes_written_this_segment}")
 
                 # print(f"Thread {segment_index}: Finished range {start_byte}-{end_byte}")
                 return # Success for this segment
 
-            except requests.exceptions.RequestException as e:
+            except (requests.exceptions.RequestException, ValueError) as e: # Catch connection errors and value errors (size mismatch)
                 current_try += 1
-                error_msg = f"Segment {segment_index} failed (Try {current_try}/{retries}): {e}"
+                error_msg_detail = f"{e}"
+                # Check for 401/403 specifically in RequestException
+                if isinstance(e, requests.exceptions.RequestException) and hasattr(e, 'response') and e.response is not None:
+                     if e.response.status_code == 401: error_msg_detail += " (Unauthorized)"
+                     elif e.response.status_code == 403: error_msg_detail += " (Forbidden)"
+
+                error_msg = f"Segment {segment_index} failed (Try {current_try}/{retries}): {error_msg_detail}"
                 print(f"Warning: [Downloader {self.download_id}] {error_msg}")
+
                 if current_try >= retries:
                     self.error = error_msg # Set final error
                     self.cancel() # Signal other threads to stop if one fails critically
@@ -172,14 +210,14 @@ class ChunkDownloader:
                 # Exponential backoff before retry
                 time.sleep(min(2 ** current_try, 10)) # Sleep max 10s between retries
 
-            except Exception as e: # Catch other errors like ValueError
+            except Exception as e: # Catch other errors
                  self.error = f"Segment {segment_index} critical error: {e}"
                  print(f"Error: [Downloader {self.download_id}] {self.error}")
                  self.cancel() # Signal cancellation on critical error
                  return
             finally:
-                 # Ensure response is closed if loop terminates unexpectedly
-                 if 'response' in locals() and response:
+                 # Ensure response is closed
+                 if response:
                      response.close()
 
     def merge_parts(self) -> bool:
@@ -197,7 +235,14 @@ class ChunkDownloader:
              with open(self.output_path, 'wb') as outfile:
                   for part_file in sorted_part_files:
                       if not part_file.exists():
-                           raise FileNotFoundError(f"Missing part file: {part_file}")
+                          # If a part is missing, check if cancelled
+                          if self.is_cancelled:
+                               self.error = self.error or "Cancelled during download, merge aborted."
+                               print(f"Warning: [Downloader {self.download_id}] Merge aborted, part missing due to cancellation: {part_file}")
+                               return False
+                          else:
+                               raise FileNotFoundError(f"Merge failed, missing part file: {part_file}")
+
                       with open(part_file, 'rb') as infile:
                           # Read/write in chunks to handle large files efficiently
                           while True:
@@ -209,19 +254,19 @@ class ChunkDownloader:
              # Optional: Verify final file size after merge
              final_size = self.output_path.stat().st_size
              if final_size != self.total_size:
-                  print(f"Warning: [Downloader {self.download_id}] Final merged size ({final_size}) differs from expected ({self.total_size}).")
+                  # This is more serious than a warning if merge succeeded otherwise
+                  self.error = f"Merged size ({final_size}) differs from expected ({self.total_size}). File may be corrupt."
+                  print(f"Error: [Downloader {self.download_id}] {self.error}")
+                  self._cleanup_temp(success=False) # Treat size mismatch after merge as failure
+                  return False
+                 # print(f"Warning: [Downloader {self.download_id}] Final merged size ({final_size}) differs slightly from expected ({self.total_size}).")
              return True
 
         except Exception as e:
             self.error = f"Failed to merge parts: {e}"
             print(f"Error: [Downloader {self.download_id}] {self.error}")
             # If merge fails, the output file might be corrupt
-            if self.output_path.exists():
-                 try:
-                      self.output_path.unlink()
-                      print(f"Removed failed merge output: {self.output_path}")
-                 except Exception as unlink_e:
-                      print(f"Warning: Could not remove failed merge output {self.output_path}: {unlink_e}")
+            self._cleanup_temp(success=False) # Cleanup already handles removing failed output
             return False
 
     def fallback_download(self) -> bool:
@@ -231,16 +276,23 @@ class ChunkDownloader:
          self._last_update_time = self._start_time
          self._last_downloaded_bytes = 0
          self.downloaded = 0
+         response = None # Define outside try
 
          try:
-             response = requests.get(self.url, stream=True, timeout=60, allow_redirects=True)
+             request_headers = self._get_request_headers() # Include auth header if needed
+             response = requests.get(self.url, stream=True, timeout=60, allow_redirects=True, headers=request_headers)
              response.raise_for_status()
+
+              # Update URL after potential redirects
+             self.url = response.url
 
              # Update size if not already known or was 0
              if self.total_size <= 0:
                  self.total_size = int(response.headers.get('content-length', 0))
                  if self.total_size <= 0:
-                      print("Warning: Fallback download also reports size 0. Proceeding anyway.")
+                      print(f"Warning: [Downloader {self.download_id}] Fallback download also reports size 0 or missing. Proceeding anyway.")
+                 else:
+                      print(f"[Downloader {self.download_id}] Obtained file size via fallback GET: {self.total_size}")
 
              with open(self.output_path, 'wb') as f:
                  for chunk in response.iter_content(self.chunk_size):
@@ -251,18 +303,26 @@ class ChunkDownloader:
 
                      if chunk:
                          bytes_written = f.write(chunk)
-                         self._update_progress(bytes_written)
+                         self._update_progress(bytes_written) # Update progress/speed
 
              # Final check after download completes
              if self.total_size > 0 and self.downloaded != self.total_size:
-                 print(f"Warning: [Downloader {self.download_id}] Fallback download size mismatch. Expected {self.total_size}, got {self.downloaded}.")
+                 self.error = f"Fallback download size mismatch. Expected {self.total_size}, got {self.downloaded}."
+                 print(f"Warning: [Downloader {self.download_id}] {self.error}")
+                 # Treat size mismatch as failure for fallback too? Yes, seems safer.
+                 self._cleanup_temp(success=False)
+                 return False
                  # Don't automatically fail, but log warning.
 
              print(f"[Downloader {self.download_id}] Fallback download completed.")
              return True
 
          except requests.exceptions.RequestException as e:
-             self.error = f"Fallback download failed: {e}"
+             error_msg_detail = f"{e}"
+             if hasattr(e, 'response') and e.response is not None:
+                  if e.response.status_code == 401: error_msg_detail += " (Unauthorized - Check API Key?)"
+                  elif e.response.status_code == 403: error_msg_detail += " (Forbidden - Permissions Issue?)"
+             self.error = f"Fallback download failed: {error_msg_detail}"
              print(f"Error: [Downloader {self.download_id}] {self.error}")
              self._cleanup_temp(success=False)
              return False
@@ -272,67 +332,107 @@ class ChunkDownloader:
              self._cleanup_temp(success=False)
              return False
          finally:
-             if 'response' in locals() and response:
+             if response:
                  response.close()
 
     def download(self) -> bool:
         """Starts the multi-threaded or fallback download process."""
         self._start_time = time.monotonic()
+        # Make sure temp dir doesn't exist from a previous failed run
+        if self.temp_dir.exists():
+            print(f"Warning: Removing leftover temp directory: {self.temp_dir}")
+            try:
+                 shutil.rmtree(self.temp_dir)
+            except Exception as e:
+                 self.error = f"Failed to clean up previous temp directory: {e}"
+                 print(f"Error: [Downloader {self.download_id}] {self.error}")
+                 return False # Abort if cleanup fails
+
         self.total_size, supports_ranges = self.get_file_info()
 
         if self.error: # If get_file_info already failed
-            self._cleanup_temp(success=False)
+            self._cleanup_temp(success=False) # Cleanup ensures no partial output file remains
             return False
         if self.total_size <= 0:
-            print("File size is 0 or unavailable. Attempting fallback download.")
+            print(f"[Downloader {self.download_id}] File size is 0 or unavailable from HEAD request. Attempting fallback download.")
             # Fallback might still work if server didn't report size correctly in HEAD
+            # Or if HEAD failed due to auth but GET works differently (less common)
             success = self.fallback_download()
+            # Fallback handles its own cleanup on error, but call again just in case
             self._cleanup_temp(success=success)
             return success
 
-        use_multi_connection = supports_ranges and self.num_connections > 1
+        # Decide whether to use multi-connection based on range support AND file size threshold?
+        # Downloading very small files with multiple connections can be slower.
+        MIN_SIZE_FOR_MULTI_MB = 50 # Example: Only use multi-connection for files > 50MB
+        use_multi_connection = (supports_ranges and
+                               self.num_connections > 1 and
+                               self.total_size > MIN_SIZE_FOR_MULTI_MB * 1024 * 1024)
+
         if not use_multi_connection:
-             print("Range requests not supported or single connection selected. Using fallback.")
+             reason = "Range requests not supported" if not supports_ranges else \
+                      "Single connection selected" if self.num_connections <= 1 else \
+                      f"File size <= {MIN_SIZE_FOR_MULTI_MB}MB"
+             print(f"[Downloader {self.download_id}] ({reason}). Using fallback single-connection download.")
              success = self.fallback_download()
-             # Fallback handles its own cleanup on error
+             self._cleanup_temp(success=success)
              return success
 
         # --- Proceed with Multi-Connection Download ---
         print(f"[Downloader {self.download_id}] Starting multi-connection download for {self.output_path.name} "
               f"({self.total_size / (1024 * 1024):.2f} MB) using {self.num_connections} connections.")
 
-        # Ensure temp directory exists and is clean
-        if self.temp_dir.exists():
-             shutil.rmtree(self.temp_dir)
-        self.temp_dir.mkdir(parents=True)
+        # Ensure temp directory exists and is clean (double check)
+        try:
+            if self.temp_dir.exists(): # Should have been removed earlier, but check again
+                 shutil.rmtree(self.temp_dir)
+            self.temp_dir.mkdir(parents=True)
+        except Exception as e:
+            self.error = f"Failed to create temp directory {self.temp_dir}: {e}"
+            print(f"Error: [Downloader {self.download_id}] {self.error}")
+            return False
+
         self.part_files = [] # Reset list of parts for this download attempt
 
-        # Calculate segments based on connections
+        # --- Calculate segments ---
+        # Prevent zero division if total_size is tiny but multi-connection was chosen (shouldn't happen with threshold)
+        if self.num_connections == 0: self.num_connections = 1 # Safety
         segment_size = self.total_size // self.num_connections
+        if segment_size == 0 and self.total_size > 0 : # Handle case where size < connections
+             segment_size = self.total_size # Effectively becomes single segment download
+
         segments = []
         current_byte = 0
         for i in range(self.num_connections):
+            if current_byte >= self.total_size: break # Stop if we've covered the whole file size
+
             start_byte = current_byte
-            end_byte = current_byte + segment_size - 1
-            # Last segment takes the remainder
+            # Calculate end_byte carefully to avoid exceeding total_size
+            end_byte = min(current_byte + segment_size - 1, self.total_size - 1)
+
+            # Ensure last segment covers the exact end, handling remainders
             if i == self.num_connections - 1:
                  end_byte = self.total_size - 1
 
-            # Avoid creating segment if start > end (can happen if total_size < num_connections)
-            if start_byte <= end_byte:
+            # Only create segment if start <= end and end is valid
+            if start_byte <= end_byte < self.total_size:
                  segments.append((i, start_byte, end_byte))
                  # Add part file path to the list expected for merging
                  self.part_files.append(self.temp_dir / f"part_{i}")
+            else:
+                 # This might happen if calculation is slightly off or size is very small
+                 print(f"Warning: [Downloader {self.download_id}] Skipping invalid segment calculation for i={i}, start={start_byte}, end={end_byte}")
+                 break # Stop creating segments if calculation goes wrong
 
-            current_byte = end_byte + 1
+            current_byte = end_byte + 1 # Start of next segment
 
         if not segments:
-             self.error = "No segments calculated (total size might be too small for connections)."
-             print(f"Error: [Downloader {self.download_id}] {self.error}")
+             self.error = "No valid download segments calculated."
+             print(f"Error: [Downloader {self.download_id}] {self.error}. Total Size: {self.total_size}, Connections: {self.num_connections}")
              self._cleanup_temp(success=False)
              return False
 
-        # Create and start download threads
+        # --- Create and start download threads ---
         self.threads = []
         for index, start, end in segments:
             if self.is_cancelled: break # Check before starting new threads
@@ -340,40 +440,67 @@ class ChunkDownloader:
             self.threads.append(thread)
             thread.start()
 
-        # Simple wait loop to allow cancellation check while waiting
-        while any(t.is_alive() for t in self.threads):
-            if self.is_cancelled:
-                print(f"[Downloader {self.download_id}] Cancellation detected, waiting for threads to exit...")
-                # No need to explicitly join if daemon=True, they will exit.
-                # Give them a moment to finish writing/close connections.
-                time.sleep(1)
-                break
-            time.sleep(0.2) # Check threads status periodically
+        # --- Wait for threads to complete ---
+        start_wait_time = time.monotonic()
+        JOIN_TIMEOUT_PER_THREAD = 120 # Max seconds to wait for a thread after loop finishes (generous)
+        active_threads = list(self.threads)
 
-        # Check for overall download success
-        if self.is_cancelled or self.error:
-            print(f"[Downloader {self.download_id}] Download stopped early. Cancelled: {self.is_cancelled}, Error: {self.error}")
+        try:
+            while active_threads:
+                if self.is_cancelled:
+                    print(f"[Downloader {self.download_id}] Cancellation detected, signalling threads to stop...")
+                    # Threads check self.is_cancelled internally. No forceful join needed for daemon threads.
+                    break # Exit waiting loop
+
+                # Check thread status with a timeout
+                # Check frequently initially, then less often?
+                check_interval = 0.2
+                time.sleep(check_interval)
+
+                active_threads = [t for t in active_threads if t.is_alive()]
+
+                # Optional: Timeout logic for hung threads? Complex. For now, rely on request timeouts.
+
+        except KeyboardInterrupt:
+             print(f"[Downloader {self.download_id}] Interrupted! Signalling cancellation.")
+             self.cancel()
+             # Give threads a moment to potentially react
+             time.sleep(1)
+             # Fall through to checks below
+
+        # --- Post-Download Checks ---
+        # Re-check cancellation status after wait loop
+        if self.is_cancelled:
+            print(f"[Downloader {self.download_id}] Download stopped due to cancellation.")
+            # Error message should already be set by cancel() or a failing thread
+            self.error = self.error or "Download cancelled"
             self._cleanup_temp(success=False)
             return False
 
-        # Verify downloaded size (basic check) after threads potentially finish
+        # Check if any thread set a global error
+        if self.error:
+            print(f"[Downloader {self.download_id}] Download stopped due to error in a thread: {self.error}")
+            self._cleanup_temp(success=False)
+            return False
+
+        # Final size check after all threads *should* have finished
         if self.downloaded != self.total_size:
-             print(f"Warning: [Downloader {self.download_id}] Final downloaded bytes ({self.downloaded}) "
-                   f"does not match expected total size ({self.total_size}). Merging process might fail or file may be incomplete.")
-             # Optionally: treat this as an error? For now, just warn.
-             # self.error = "Downloaded size mismatch"
-             # self._cleanup_temp(success=False)
-             # return False
+             # This IS an error condition if cancellation/other errors didn't occur
+             self.error = f"Final downloaded bytes ({self.downloaded}) does not match expected total size ({self.total_size})."
+             print(f"Error: [Downloader {self.download_id}] {self.error}")
+             self._cleanup_temp(success=False)
+             return False
 
         # -------- Merge the parts --------
         merge_success = self.merge_parts()
-        self._cleanup_temp(success=merge_success) # Cleanup temp files after merge attempt
-
+        # merge_parts sets self.error and handles cleanup on its own failure
+        # _cleanup_temp only needs to remove the temp folder if merge succeeded
         if merge_success:
-            print(f"[Downloader {self.download_id}] Successfully downloaded and merged: {self.output_path}")
-            # Final status update (will be done by manager wrapper)
+             self._cleanup_temp(success=True) # Clean up only temp folder
+             print(f"[Downloader {self.download_id}] Successfully downloaded and merged: {self.output_path}")
         else:
              # Error already set by merge_parts if it failed
              print(f"Error: [Downloader {self.download_id}] Merge process failed.")
 
+        # Return final success state
         return merge_success
