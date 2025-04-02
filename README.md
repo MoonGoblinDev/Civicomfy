@@ -19,7 +19,7 @@ git clone https://github.com/MoonGoblinDev/Civicomfy.git
 ## Usage
 
 1. Start ComfyUI with Civicomfy installed
-2. Access the Civicomfy panel from the sidebar
+2. Access the Civicomfy panel from the Civicomfy menu button at the right top area.
 3. Search for models by name, creator, or tags
 4. Click the download button on any model to save it to your local installation
 5. Models become immediately available in ComfyUI nodes
