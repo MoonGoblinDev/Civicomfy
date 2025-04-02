@@ -29,8 +29,11 @@ git clone https://github.com/MoonGoblinDev/Civicomfy.git
 - Enter your Civitai API Token in the setting
 
 ## Screenshots
+<img width="917" alt="Screenshot 2025-04-02 at 07 22 12" src="https://github.com/user-attachments/assets/d26a2b3d-7bea-47c0-b06c-f1f483faa56c" />
+<img width="917" alt="Screenshot 2025-04-02 at 07 22 30" src="https://github.com/user-attachments/assets/ad07a51f-7862-4d71-85f5-19652c1bc36f" />
+<img width="917" alt="Screenshot 2025-04-02 at 07 22 58" src="https://github.com/user-attachments/assets/6f6dbf03-b352-4435-a771-4ad604fcbc8d" />
+<img width="917" alt="Screenshot 2025-04-02 at 07 23 05" src="https://github.com/user-attachments/assets/f0ad6dbf-294c-4d34-acf2-fdb6ced82450" />
 
-[Screenshots would be included here]
 
 ## Contributing
 
