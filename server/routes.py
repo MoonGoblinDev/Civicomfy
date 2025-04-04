@@ -1,7 +1,4 @@
 # ================================================
-# File: server/routes.py
-# ================================================
-# ================================================
 # File: server/routes.py (Updated)
 # This file needs to pass more info (model_info, version_info, primary_file)
 # to the DownloadManager.
@@ -9,7 +6,7 @@
 import server # ComfyUI server instance
 import os
 import traceback
-import urllib.parse # Needed for thumbnail processing
+import urllib.parse 
 import re
 from aiohttp import web
 

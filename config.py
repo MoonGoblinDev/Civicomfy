@@ -1,7 +1,6 @@
 # ================================================
 # File: config.py
 # ================================================
-# Civicomfy/config.py
 import os
 import folder_paths # Use ComfyUI's folder_paths
 
@@ -65,7 +64,7 @@ CIVITAI_API_TYPE_MAP = {
     "motionmodule": "MotionModule",
     "poses": "Poses",
     "wildcards": "Wildcards",
-    # "upscaler": None, # Upscalers aren't typically a primary search type on Civitai
+    "upscaler": "Upscaler", 
     # "other": None,
 }
 

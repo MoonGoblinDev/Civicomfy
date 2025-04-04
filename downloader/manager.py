@@ -1,7 +1,6 @@
 # ================================================
 # File: downloader/manager.py
 # ================================================
-# Civicomfy/downloader/manager.py
 import threading
 import time
 import datetime

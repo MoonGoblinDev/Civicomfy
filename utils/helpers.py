@@ -1,12 +1,11 @@
 # ================================================
 # File: utils/helpers.py
 # ================================================
-# Civicomfy/utils/helpers.py
 import os
 import urllib.parse
-import re # Import re for sanitization
+import re 
 from pathlib import Path
-import folder_paths # Use ComfyUI's folder_paths
+import folder_paths 
 
 # Import config values needed here
 from ..config import MODELS_DIR, MODEL_TYPE_DIRS

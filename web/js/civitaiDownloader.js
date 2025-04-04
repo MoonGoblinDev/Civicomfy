@@ -1,7 +1,3 @@
-// ComfyUI_Civitai_Downloader/web/js/civitaiDownloader.js
-// Paste the complete Javascript content below
-
-// Civicomfy UI for ComfyUI
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
@@ -157,7 +153,7 @@ class CivitaiDownloaderAPI {
                 throw error;
             }
             // Handle empty response body for success codes like 204
-             if (response.status === 204 || response.headers.get('content-length') === '0') {
+             if (response.status === 204 || response.headers.get('Content-Length') === '0') {
                 return null;
             }
             // Assume JSON response for other success codes
