@@ -455,14 +455,20 @@ async def route_get_status(request):
 async def route_cancel_download(request):
     """API Endpoint to cancel a download."""
     try:
+        print("masok 6")
+        print(request)
         data = await _get_request_json(request)
+        print("masok 7 ")
+        print(data)
         download_id = data.get("download_id")
-
+        print("masok 8 " + download_id)
         if not download_id:
+            print("not download id " + download_id)
             raise web.HTTPBadRequest(reason="Missing 'download_id'")
 
         success = download_manager.cancel_download(download_id)
-
+        print("masok 9")
+        print(success)
         if success:
             return web.json_response({
                 "status": "cancelled", # Or "cancellation_requested" ?

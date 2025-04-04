@@ -81,10 +81,12 @@ class ChunkDownloader:
     def cancel(self):
         """Signal the download to cancel."""
         if not self.is_cancelled:
-            print(f"[Downloader {self.download_id or 'N/A'}] Cancellation requested.")
+            print(f"[Downloader {self.download_id or 'N/A'}] Cancellation requested by user.")
             self.cancel_event.set()
+            print("masok 1")
             self.error = "Download cancelled by user"
             if self.manager and self.download_id:
+                print("masok 2")
                 self.manager._update_download_status(self.download_id, status="cancelled", error=self.error)
 
     def _cleanup_temp(self, success: bool):
@@ -178,7 +180,8 @@ class ChunkDownloader:
                     self.manager._update_download_status(
                         self.download_id,
                         progress=progress,
-                        speed=self._speed
+                        speed=self._speed,
+                        status="downloading"
                     )
 
     def download_segment(self, segment_index: int, start_byte: int, end_byte: int):
@@ -189,7 +192,10 @@ class ChunkDownloader:
         
         for current_try in range(retries):
             if self.is_cancelled:
-                return
+                print(f"[Downloader {self.download_id}] Segment {segment_index} cancelled before request (Try {current_try+1}).")
+                # Ensure error is set if not already
+                if not self.error: self.error = "Cancelled during segment download"
+                return 
                 
             response = None
             try:
@@ -200,8 +206,12 @@ class ChunkDownloader:
                 with open(part_file_path, 'wb') as f:
                     for chunk in response.iter_content(self.chunk_size):
                         if self.is_cancelled:
-                            return
-                        
+                            print(f"[Downloader {self.download_id}] Segment {segment_index} cancelled mid-stream.")
+                            # Ensure error is set if not already
+                            if not self.error: self.error = "Cancelled during segment download"
+                            # No need to return immediately, finally block will close response
+                            raise OperationCancelled("Download cancelled by user signal.") # Raise specific exception
+                            
                         if chunk:
                             bytes_written = f.write(chunk)
                             bytes_written_this_segment += bytes_written
@@ -216,6 +226,7 @@ class ChunkDownloader:
 
                 return  # Success
 
+            
             except (requests.exceptions.RequestException, ValueError) as e:
                 # Handle HTTP status codes
                 status_code = None
@@ -312,7 +323,7 @@ class ChunkDownloader:
         """Fallback to standard single-connection download."""
         self.connection_type = "Single"
         if self.manager and self.download_id:
-            self.manager._update_download_status(self.download_id, connection_type=self.connection_type)
+            self.manager._update_download_status(self.download_id, connection_type=self.connection_type, status="downloading")
 
         print(f"[Downloader {self.download_id}] Using standard single-connection download for {self.output_path.name}...")
         
@@ -352,10 +363,11 @@ class ChunkDownloader:
                     if self.is_cancelled:
                         print(f"[Downloader {self.download_id}] Fallback download cancelled.")
                         return False
-
                     if chunk:
                         bytes_written = f.write(chunk)
                         self._update_progress(bytes_written)
+
+                    
 
             # Verify download size if known
             if self.total_size > 0 and self.downloaded != self.total_size and not self.error:
@@ -474,7 +486,7 @@ class ChunkDownloader:
         """Handle multi-connection download process."""
         self.connection_type = f"Multi ({self.num_connections})"
         if self.manager and self.download_id:
-            self.manager._update_download_status(self.download_id, connection_type=self.connection_type)
+            self.manager._update_download_status(self.download_id, connection_type=self.connection_type, status="downloading")
 
         print(f"[Downloader {self.download_id}] Starting multi-connection download for {self.output_path.name} "
               f"({self.total_size / (1024 * 1024):.2f} MB) using {self.num_connections} connections.")

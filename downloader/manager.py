@@ -77,46 +77,83 @@ class DownloadManager:
             return download_id
 
     def cancel_download(self, download_id: str) -> bool:
-        """Requests cancellation of a queued or active download."""
-        with self.lock:
-            # Check queue first
-            for i, item in enumerate(self.queue):
-                if item["id"] == download_id:
-                    cancelled_info = self.queue.pop(i)
-                    cancelled_info["status"] = "cancelled"
-                    cancelled_info["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                    cancelled_info["error"] = "Cancelled from queue"
-                    self._add_to_history(cancelled_info)
-                    print(f"[Manager] Cancelled queued download: {download_id}")
-                    return True
+            """Requests cancellation of a queued or active download."""
+            print(f"[Manager] Received cancellation request for: {download_id}") # Moved print earlier
+            downloader_to_cancel: Optional['ChunkDownloader'] = None
+            found_in_active = False
 
-            # Check active downloads
-            if download_id in self.active_downloads:
-                active_info = self.active_downloads[download_id]
-                downloader: Optional['ChunkDownloader'] = active_info.get("downloader_instance")
+            with self.lock:
+                # 1. Check queue first (can be fully handled under lock)
+                for i, item in enumerate(self.queue):
+                    if item["id"] == download_id:
+                        cancelled_info = self.queue.pop(i)
+                        cancelled_info["status"] = "cancelled"
+                        cancelled_info["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                        cancelled_info["error"] = "Cancelled from queue"
+                        self._add_to_history(cancelled_info) # _add_to_history is safe under lock
+                        print(f"[Manager] Cancelled queued download: {download_id}")
+                        return True # Cancelled from queue, we are done
 
-                if downloader:
-                    # Check if already cancelled (to avoid duplicate logs/actions)
-                    if not downloader.is_cancelled:
-                        downloader.cancel() # Signal the downloader thread to stop
-                        # Status ("cancelled") will be updated by the _download_file_wrapper or downloader.cancel()
-                        print(f"[Manager] Cancellation requested for active download: {download_id}")
-                        # Don't move to history yet, let the thread finish and update status
+                # 2. Check active downloads - Find the instance *under lock*
+                if download_id in self.active_downloads:
+                    found_in_active = True
+                    active_info = self.active_downloads[download_id]
+                    downloader_to_cancel = active_info.get("downloader_instance")
+                    current_status = active_info.get("status")
+
+                    # If downloader instance doesn't exist yet (status 'starting')
+                    # or if already terminal, handle it here under lock
+                    if not downloader_to_cancel and current_status == "starting":
+                        print(f"[Manager] Marking 'starting' download as cancelled: {download_id}")
+                        # Mark as cancelled, it won't start or will be caught by wrapper
+                        active_info["status"] = "cancelled"
+                        if not active_info.get("end_time"):
+                            active_info["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                        active_info["error"] = "Cancelled before download thread fully started"
+                        # Don't assign downloader_to_cancel, let process_queue clean it up
+                        downloader_to_cancel = None # Explicitly clear
+                        # Indicate we handled it (or attempted to)
+                        return True # Exit, processed within lock
+                    elif current_status in ["completed", "failed", "cancelled"]:
+                        print(f"[Manager] Download {download_id} is already in terminal state '{current_status}'. Cannot cancel.")
+                        # Indicate we don't need to proceed further outside the lock
+                        downloader_to_cancel = None # Explicitly clear
+                        return False # Already finished/cancelled
+
+                    # If we found an instance and it's potentially running,
+                    # store it to call cancel *after* releasing the lock.
+                    print(f"[Manager] Found active downloader instance for {download_id}. Will signal outside lock.")
+
+                # Lock is released automatically here when exiting 'with'
+
+            # 3. Signal the downloader instance *outside* the lock
+            if downloader_to_cancel:
+                try:
+                    # Check if already cancelled (to avoid duplicate logs/actions) - This check is thread-safe
+                    if not downloader_to_cancel.is_cancelled:
+                        print(f"[Manager] Calling downloader.cancel() for {download_id}")
+                        downloader_to_cancel.cancel() # This can now call _update_download_status safely
+                        print(f"[Manager] Signalled downloader.cancel() for {download_id}")
+                        # Let the download thread's final status update handle moving to history
+                        return True # Signal sent
                     else:
                         print(f"[Manager] Active download {download_id} was already cancelling.")
-                    return True
-                else:
-                    # Downloader instance not yet created (e.g., status 'starting')
-                    # Mark as cancelled, it won't start
-                    active_info["status"] = "cancelled"
-                    active_info["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                    active_info["error"] = "Cancelled before download started"
-                    # The _process_queue will move it later
-                    print(f"[Manager] Cancelled download (status: starting): {download_id}")
-                    return True
+                        return True # Already in cancelling state is considered a success here
+                except Exception as e:
+                    print(f"[Manager] Error calling downloader.cancel() for {download_id}: {e}")
+                    # Update status to failed maybe? Or just log.
+                    # Use _update_download_status directly here as we are outside the lock
+                    self._update_download_status(download_id, status="failed", error=f"Error during cancel signaling: {e}")
+                    return False # Failed to signal
 
-        print(f"[Manager] Could not cancel - ID not found in queue or active: {download_id}")
-        return False
+            # 4. Handle cases where it wasn't in queue and wasn't running/starting
+            if not found_in_active:
+                print(f"[Manager] Could not cancel - ID not found in queue or active: {download_id}")
+                return False # Not found
+
+            # It was found in active but was already terminal or couldn't be signalled
+            # Return value determined above
+            return False # Should have returned True earlier if successful
 
     def get_status(self) -> Dict[str, List[Dict[str, Any]]]:
         """Returns the current state of the queue, active downloads, and history."""
@@ -237,7 +274,8 @@ class DownloadManager:
             if download_id in self.active_downloads:
                 item = self.active_downloads[download_id]
                 updated = False # Track if any field was actually updated
-
+                if status == "cancelled":
+                    print("masok 5 cancel lur")
                 # Only update if value is provided
                 if status is not None and item.get("status") != status:
                     item["status"] = status
@@ -266,17 +304,8 @@ class DownloadManager:
                     updated = True
 
                 # Optional: Log when an update actually happens
-                # if updated: print(f"DEBUG - Updated status for {download_id}: Status={status}, Progress={progress}, Speed={speed}, Conn={connection_type}, Error={error}")
+                print(f"DEBUG - Updated status for {download_id}: Status={status}, Progress={progress}, Speed={speed}, Conn={connection_type}, Error={error}")
 
-            # else:
-            #     # This can happen normally if status update arrives after item moved to history
-            #     # It can also happen if cancel is processed very quickly
-            #     # If status indicates a terminal state, log a warning as it might indicate a race condition
-            #     if status in ["completed", "failed", "cancelled"]:
-            #          print(f"[Manager] Warning: Attempted to update status for finished/unknown ID: {download_id}. Status was: {status}. This might indicate a race condition if unexpected.")
-            #     # else: # Non-terminal updates for unknown IDs are less concerning
-            #     #      print(f"Debug: Attempted to update progress/speed for finished/unknown ID: {download_id}.")
-            #     pass
 
     def _save_civitai_metadata(self, download_info: Dict[str, Any]):
         """Saves the .cminfo.json file."""
