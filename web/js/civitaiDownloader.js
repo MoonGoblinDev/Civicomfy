@@ -487,7 +487,7 @@ class CivitaiDownloaderUI {
         this.searchTypeSelect = this.modal.querySelector('#civitai-search-type');
         this.searchSortSelect = this.modal.querySelector('#civitai-search-sort');
         this.searchPeriodSelect = this.modal.querySelector('#civitai-search-period');
-        this.searchNsfwCheckbox = this.modal.querySelector('#civitai-search-nsfw'); // If uncommented later
+        this.searchNsfwCheckbox = this.modal.querySelector('#civitai-search-nsfw'); 
         this.searchSubmitButton = this.modal.querySelector('#civitai-search-submit');
         this.searchResultsContainer = this.modal.querySelector('#civitai-search-results');
         this.searchPaginationContainer = this.modal.querySelector('#civitai-search-pagination');
@@ -1234,42 +1234,123 @@ class CivitaiDownloaderUI {
             return;
         }
 
-        const placeholder = PLACEHOLDER_IMAGE_URL;
+        const placeholder = PLACEHOLDER_IMAGE_URL; // Make sure this is defined elsewhere
         const onErrorScript = `this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';`;
         const fragment = document.createDocumentFragment();
+
+        console.log(results);
+        console.log(results.items);
 
         results.items.forEach(item => {
             // Safely access nested data
             const modelId = item.id;
-            const creator = item.creator?.username || 'Unknown';
+            const creator = item.creator?.username || 'Unknown Creator'; // More specific default
             const modelName = item.name || 'Untitled Model';
-            const type = item.type || 'Unknown Type';
+            const type = item.type || 'N/A'; // Use N/A for type consistency
             const stats = item.stats || {};
             const tags = item.tags || [];
 
-            // Get latest version info (assuming first is latest)
-            const version = item.modelVersions?.[0] || {};
-            const versionId = version.id;
-            const versionName = version.name || 'N/A';
-            const fileInfo = version.files?.[0] || {}; // Assume first file is representative
-            const fileSizeKB = fileInfo.sizeKB;
+            // Get version info
+            const modelVersions = item.modelVersions || [];
+            const latestVersions = modelVersions.slice(0, 3);
+            const hasMoreVersions = modelVersions.length > 3;
 
-             // Use pre-processed thumb from backend or fallback
+            // Extract Unique Base Models
+            const uniqueBaseModels = modelVersions.length > 0
+                ? [...new Set(modelVersions.map(v => v.baseModel).filter(Boolean))]
+                : [];
+            const baseModelsDisplay = uniqueBaseModels.length > 0
+                ? uniqueBaseModels.join(', ')
+                : 'N/A';
+
+            // Extract and Format Latest Update Date
+            let latestDateFormatted = 'N/A';
+            if (modelVersions.length > 0 && modelVersions[0].publishedAt) {
+                try {
+                    const latestDate = new Date(modelVersions[0].publishedAt);
+                    latestDateFormatted = latestDate.toLocaleDateString('en-GB', {
+                        day: 'numeric', month: 'long', year: 'numeric'
+                    });
+                } catch (e) {
+                    console.error(`Error parsing date for model ${modelId}:`, modelVersions[0].publishedAt, e);
+                    latestDateFormatted = 'Invalid Date';
+                }
+            }
+
+            // Use pre-processed thumb from backend or fallback
             const thumbnailUrl = item.thumbnailUrl || placeholder;
 
             const listItem = document.createElement('div');
             listItem.className = 'civitai-search-item';
             listItem.dataset.modelId = modelId;
 
+            // Generate version buttons HTML
+            let versionButtonsHtml = latestVersions.map(version => {
+                const versionId = version.id;
+                const baseModel = version.baseModel || 'Unknown';
+                return `
+                    <button class="civitai-button primary small civitai-search-download-button"
+                            data-model-id="${modelId}"
+                            data-version-id="${versionId || ''}"
+                            data-model-type="${type || ''}" ${/* Pass original type here if needed for download */''}
+                            ${!versionId ? 'disabled title="No version ID found for download"' : 'title="Pre-fill Download Tab"'} >
+                        <span class="base-model-badge">${baseModel}</span> ${version.name} <i class="fas fa-download"></i>
+                    </button>
+                `;
+            }).join('');
+
+            // "All versions" button
+            const moreButtonHtml = hasMoreVersions ? `
+                <button class="civitai-button secondary small show-all-versions-button"
+                        data-model-id="${modelId}"
+                        title="Show all versions">
+                    All versions (${modelVersions.length}) <i class="fas fa-chevron-down"></i>
+                </button>
+            ` : '';
+
+            // All versions container
+            let allVersionsHtml = '';
+            if (hasMoreVersions) {
+                allVersionsHtml = `
+                    <div class="all-versions-container" id="all-versions-${modelId}" style="display: none;">
+                        ${modelVersions.slice(3).map(version => {
+                            const versionId = version.id;
+                            const baseModel = version.baseModel || 'Unknown';
+                            return `
+                                <button class="civitai-button primary small civitai-search-download-button"
+                                        data-model-id="${modelId}"
+                                        data-version-id="${versionId || ''}"
+                                        data-model-type="${type || ''}" ${/* Pass original type here if needed for download */''}
+                                        ${!versionId ? 'disabled title="No version ID found for download"' : 'title="Pre-fill Download Tab"'} >
+                                    <span class="base-model-badge">${baseModel}</span> ${version.name} <i class="fas fa-download"></i>
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
+
             listItem.innerHTML = `
-                <img src="${thumbnailUrl}" alt="${modelName} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
+                <!-- NEW: Thumbnail container for positioning badge -->
+                <div class="civitai-thumbnail-container">
+                    <img src="${thumbnailUrl}" alt="${modelName} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
+                    <!-- NEW: Type badge positioned over thumbnail -->
+                    <div class="civitai-type-badge">${type}</div>
+                </div>
                 <div class="civitai-search-info">
                     <h4>${modelName}</h4>
-                    <p>by ${creator} | Type: ${type}</p>
+                    <!-- UPDATED: Meta info row -->
+                    <div class="civitai-search-meta-info">
+                        <span title="Creator"><i class="fas fa-user"></i> ${creator}</span>
+                        <span title="Base Models"><i class="fas fa-layer-group"></i> ${baseModelsDisplay}</span>
+                        <span title="Last Updated"><i class="fas fa-calendar-alt"></i> ${latestDateFormatted}</span>
+                    </div>
+                    <!-- REMOVED: Old p tag with creator/type -->
                     <div class="civitai-search-stats">
                         <span title="Downloads"><i class="fas fa-download"></i> ${stats.downloadCount?.toLocaleString() || 0}</span>
-                        <span title="Rating"><i class="fas fa-star"></i> ${stats.rating?.toFixed(1) || 'N/A'} (${stats.ratingCount?.toLocaleString() || 0})</span>
-                        <span title="Favorites"><i class="fas fa-heart"></i> ${stats.favoriteCount?.toLocaleString() || 0}</span>
+                        <span title="Likes"><i class="fas fa-thumbs-up"></i> ${stats.thumbsUpCount?.toLocaleString() || 0}</span>
+                        <span title="Dislikes"><i class="fas fa-thumbs-down"></i> ${stats.thumbsDownCount?.toLocaleString() || 0}</span>
+                        <span title="Buzz"><i class="fas fa-bolt"></i> ${stats.tippedAmountCount?.toLocaleString() || 0}</span>
                     </div>
                     ${tags.length > 0 ? `
                     <div class="civitai-search-tags">
@@ -1277,37 +1358,82 @@ class CivitaiDownloaderUI {
                         ${tags.length > 5 ? `<span class="civitai-search-tag">...</span>` : ''}
                     </div>
                     ` : ''}
-                    <p class="civitai-search-version-info" title="Latest Version: ${versionName}">
-                        Latest: ${versionName} ${fileSizeKB ? '- ' + this.formatBytes(fileSizeKB * 1024) : ''}
-                    </p>
                 </div>
                 <div class="civitai-search-actions">
-                    <a href="https://civitai.com/models/${modelId}?modelVersionId=${versionId || ''}" target="_blank" rel="noopener noreferrer" class="civitai-button small" title="Open on Civitai website">View <i class="fas fa-external-link-alt"></i></a>
-                    <button class="civitai-button primary small civitai-search-download-button"
-                            data-model-id="${modelId}"
-                            data-version-id="${versionId || ''}"
-                            data-model-type="${type || ''}"
-                            ${!versionId ? 'disabled title="No version ID found for download"' : 'title="Pre-fill Download Tab"'} >
-                        DL <i class="fas fa-download"></i>
-                    </button>
+                    <a href="https://civitai.com/models/${modelId}" target="_blank" rel="noopener noreferrer" class="civitai-button small" title="Open on Civitai website">View <i class="fas fa-external-link-alt"></i></a>
+                    <div class="version-buttons-container">
+                        ${versionButtonsHtml}
+                    </div>
+                    ${moreButtonHtml}
+                    ${allVersionsHtml}
                 </div>
             `;
-             fragment.appendChild(listItem);
+
+            fragment.appendChild(listItem);
         });
 
         this.searchResultsContainer.innerHTML = ''; // Clear previous
         this.searchResultsContainer.appendChild(fragment);
+
+        // Re-attach "All versions" button listeners
+        this.searchResultsContainer.querySelectorAll('.show-all-versions-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const modelId = button.dataset.modelId;
+                const versionsContainer = document.getElementById(`all-versions-${modelId}`);
+                 // Find the item again to get the correct count for this specific model
+                const itemData = results.items.find(item => item.id == modelId);
+                const totalVersionCount = itemData?.modelVersions?.length || 0;
+
+                if (versionsContainer) {
+                    const isHidden = versionsContainer.style.display === 'none';
+                    versionsContainer.style.display = isHidden ? 'flex' : 'none';
+                    button.innerHTML = isHidden
+                        ? `Less <i class="fas fa-chevron-up"></i>`
+                        : `All versions (${totalVersionCount}) <i class="fas fa-chevron-down"></i>`;
+                }
+            });
+        });
+
+         // Add event listeners for download buttons (ensure this logic exists)
+         // Example:
+         // this.searchResultsContainer.querySelectorAll('.civitai-search-download-button').forEach(button => {
+         //    button.addEventListener('click', (event) => this.handleDownloadButtonClick(event));
+         // });
     }
 
+    // Helper function to ensure FontAwesome is loaded (keep your existing implementation)
+    ensureFontAwesome() {
+        if (!document.querySelector('link[href*="fontawesome"]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'; // Or your preferred FA source
+            document.head.appendChild(link);
+        }
+    }
+
+  
+
+    // Helper function to ensure FontAwesome is loaded (keep your existing implementation)
+    ensureFontAwesome() {
+        if (!document.querySelector('link[href*="fontawesome"]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'; // Or your preferred FA source
+            document.head.appendChild(link);
+        }
+    }
+    
+
      renderSearchPagination(metadata) {
-        if (!metadata || !metadata.totalPages || metadata.totalPages <= 1) {
+        if (!metadata || !metadata.pageSize || metadata.pageSize <= 1) {
+            console.log("NO PAGE " + metadata.pageSize)
             this.searchPaginationContainer.innerHTML = '';
             return;
         }
 
          // Ensure current page from metadata is valid
          const currentPage = metadata.currentPage && metadata.currentPage > 0 ? metadata.currentPage : 1;
-         const totalPages = metadata.totalPages;
+         const totalPages = metadata.pageSize;
 
          // Update internal state (important for next search submit)
          this.searchPagination.currentPage = currentPage;

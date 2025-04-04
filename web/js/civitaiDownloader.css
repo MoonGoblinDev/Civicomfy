@@ -365,18 +365,55 @@
     border: 1px solid var(--border-color, #555);
     transition: background-color 0.2s ease;
 }
-/* No hover effect needed as actions are explicit buttons */
-/* .civitai-search-item:hover { */
-/*    background-color: var(--comfy-input-bg-hover); */
-/* } */
+
+.civitai-thumbnail-container {
+    position: relative; /* Required for absolute positioning of the child badge */
+    display: block; 
+    line-height: 0; 
+    width: 120px;
+    height: 170px;
+    flex-shrink: 0; 
+}
 
 .civitai-search-thumbnail {
-    width: 100px; /* Slightly larger for search */
-    height: 100px;
+    width: 120px; /* Slightly larger for search */
+    height: 170px;
     object-fit: cover;
     border-radius: 4px;
     background-color: #333;
     flex-shrink: 0;
+}
+
+.civitai-search-meta-info {
+    font-size: 0.85em;
+    color: #aaa; 
+    margin-bottom: 5px;
+    display: flex;
+    gap: 15px; 
+    flex-wrap: wrap; 
+}
+
+.civitai-search-meta-info span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px; 
+}
+
+.civitai-search-meta-info i {
+    color: #ccc; 
+}
+.civitai-type-badge {
+    position: absolute;
+    bottom: 5px;         /* Adjust spacing from bottom */
+    left: 5px;           /* Adjust spacing from left */
+    background-color: rgb(48, 94, 70); /* Black background with transparency */
+    color: white; 
+    padding: 10px 8px;    /* Adjust padding (top/bottom, left/right) */
+    border-radius: 10px; /* Adjust for desired roundness */
+    font-size: 0.75em;   /* Adjust font size */
+    font-weight: bold; 
+    z-index: 2;          /* Ensure it's above the image */
+    white-space: nowrap; /* Prevent text wrapping */
 }
 
 .civitai-search-info {
@@ -428,6 +465,40 @@
     margin-left: auto;
     flex-shrink: 0;
 }
+
+.version-buttons-container {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end; 
+    gap: 5px;
+}
+
+.all-versions-container {
+    display: flex;
+    flex-direction: column; 
+    gap: 5px;
+    padding-bottom: 5px;
+    white-space: nowrap; /* Prevent wrapping */
+    max-width: 100%; /* Prevent excessive width */
+    align-items: flex-end; 
+}
+
+.show-all-versions-button {
+    align-self: flex-end; /* Align button to left */
+    margin-top: auto; /* Push to the bottom */
+}
+.base-model-badge {
+    display: inline-block; /* Allows padding and background */
+    background-color: #3a3a3a;  /* Or a specific purple hex code like #800080 */
+    color: white;
+    font-weight: bold;
+    padding: 2px 6px;       /* Adjust padding for desired size (vertical horizontal) */
+    border-radius: 3px;     /* Adjust for desired roundness */
+    margin-right: 4px;     /* Optional: Adds some space between badge and hyphen */
+    line-height: 1;        /* Optional: Can help contain the background better */
+    vertical-align: middle; /* Optional: Helps align the badge nicely with text */
+}
+
 
 /* Settings Tab Styling */
 .civitai-settings-container {
