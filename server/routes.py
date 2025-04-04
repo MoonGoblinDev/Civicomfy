@@ -11,7 +11,10 @@ import os
 import traceback
 import urllib.parse # Needed for thumbnail processing
 import re
+import math
+import json
 from aiohttp import web
+
 
 # Import necessary components from our modules
 from ..downloader.manager import manager as download_manager # Use the global instance
@@ -21,6 +24,17 @@ from ..config import MODEL_TYPE_DIRS, CIVITAI_API_TYPE_MAP, PREVIEW_SUFFIX, META
 
 # Get the PromptServer instance
 prompt_server = server.PromptServer.instance
+
+AVAILABLE_MEILI_BASE_MODELS = [
+    "AuraFlow", "CogVideoX", "Flux.1 D", "Flux.1 S", "Hunyuan 1", "Hunyuan Video",
+    "Illustrious", "Kolors", "LTXV", "Lumina", "Mochi", "NoobAI", "ODOR", "Other",
+    "PixArt E", "PixArt a", "Playground v2", "Pony", "SD 1.4", "SD 1.5",
+    "SD 1.5 Hyper", "SD 1.5 LCM", "SD 2.0", "SD 2.0 768", "SD 2.1", "SD 2.1 768",
+    "SD 2.1 Unclip", "SD 3", "SD 3.5", "SD 3.5 Large", "SD 3.5 Large Turbo",
+    "SD 3.5 Medium", "SDXL 0.9", "SDXL 1.0", "SDXL 1.0 LCM", "SDXL Distilled",
+    "SDXL Hyper", "SDXL Lightning", "SDXL Turbo", "SVD", "SVD XT", "Stable Cascade",
+    "Wan Video"
+]
 
 # --- Helper Functions ---
 
@@ -474,96 +488,130 @@ async def route_cancel_download(request):
 
 @prompt_server.routes.post("/civitai/search")
 async def route_search_models(request):
-    """API Endpoint for searching models on Civitai."""
-    api_key = None
+    """API Endpoint for searching models using Civitai's Meilisearch."""
+    api_key = None # Meili might not use the standard key
     try:
         data = await _get_request_json(request)
 
         query = data.get("query", "").strip()
-        model_types_keys = data.get("model_types", []) # e.g., ["lora", "checkpoint"]
-        sort = data.get("sort", "Highest Rated")
-        period = data.get("period", "AllTime")
+        model_type_keys = data.get("model_types", []) # e.g., ["lora", "checkpoint"] (frontend internal keys)
+        base_model_filters = data.get("base_models", []) # e.g., ["SD 1.5", "Pony"]
+        sort = data.get("sort", "Most Downloaded") # Frontend display value
+        # Make period optional or remove if not supported by Meili sort directly
+        # period = data.get("period", "AllTime")
         limit = int(data.get("limit", 20))
         page = int(data.get("page", 1))
-        api_key = data.get("api_key", "")
+        api_key = data.get("api_key", "") # Keep for potential future use or different endpoints
         nsfw = data.get("nsfw", None) # Expect Boolean or None
 
-        # Allow browsing by type without query, but require at least one
-        if not query and not model_types_keys:
-             raise web.HTTPBadRequest(reason="Search requires a query or at least one model type selection.")
+        if not query and not model_type_keys and not base_model_filters:
+             raise web.HTTPBadRequest(reason="Search requires a query or at least one filter (type or base model).")
 
+        # Instantiate API - API key might not be needed for Meili public search
         api = CivitaiAPI(api_key or None)
 
-        # Map internal type keys to Civitai API 'types' values
-        api_types_filter = []
-        # Ensure input is a list before processing
-        if isinstance(model_types_keys, list) and model_types_keys and "any" not in model_types_keys:
-            for key in model_types_keys:
-                 # Map key.lower() for robustness
-                 api_type = CIVITAI_API_TYPE_MAP.get(key.lower())
-                 if api_type and api_type not in api_types_filter:
-                      api_types_filter.append(api_type)
+        # --- Prepare Filters for Meili API call ---
 
-        print(f"[Server Search] Civitai: query='{query if query else '<none>'}', types={api_types_filter or 'Any'}, sort={sort}, period={period}, nsfw={nsfw}, limit={limit}, page={page}")
-        results = api.search_models(
-             query=query or None, # Pass None if query is empty (API might handle this for type browsing)
-             types=api_types_filter or None, # Pass None if no types selected (API default)
-             sort=sort,
-             period=period,
+        # 1. Map internal type keys to Civitai API 'type' names (used in Meili filter)
+        # This assumes Meili filters on the uppercase names like "LORA", "Checkpoint"
+        api_types_filter = []
+        if isinstance(model_type_keys, list) and model_type_keys and "any" not in model_type_keys:
+            for key in model_type_keys:
+                # Map key.lower() for robustness - use the existing map from config
+                # CIVITAI_API_TYPE_MAP maps internal key -> Civitai API type name (e.g. 'lora' -> 'LORA')
+                api_type = CIVITAI_API_TYPE_MAP.get(key.lower())
+                # Ensure we handle cases where the map might return None or duplicate types
+                if api_type and api_type not in api_types_filter:
+                    api_types_filter.append(api_type)
+
+        # 2. Base Model Filters (assume frontend sends exact names like "SD 1.5")
+        valid_base_models = []
+        if isinstance(base_model_filters, list) and base_model_filters:
+             # Optional: Validate against known list?
+             valid_base_models = [bm for bm in base_model_filters if isinstance(bm, str) and bm]
+             # Example validation (optional):
+             # valid_base_models = [bm for bm in base_model_filters if bm in AVAILABLE_MEILI_BASE_MODELS]
+             # if len(valid_base_models) != len(base_model_filters):
+             #     print("Warning: Some provided base model filters were invalid.")
+
+        # --- Call the New API Method ---
+        print(f"[Server Search] Meili: query='{query if query else '<none>'}', types={api_types_filter or 'Any'}, baseModels={valid_base_models or 'Any'}, sort={sort}, nsfw={nsfw}, limit={limit}, page={page}")
+
+        # Call the new search method
+        meili_results = api.search_models_meili(
+             query=query or None, # Meili handles empty query if filters exist
+             types=api_types_filter or None,
+             base_models=valid_base_models or None,
+             sort=sort, # Pass the frontend value, mapping happens inside search_models_meili
              limit=limit,
              page=page,
-             nsfw=nsfw # Pass boolean or None
+             nsfw=nsfw
         )
 
         # Handle API error response from CivitaiAPI helper
-        if results and isinstance(results, dict) and "error" in results:
-             status_code = results.get("status_code", 500) or 500 # Default to 500 if None
-             reason = f"Civitai API Search Error: {results.get('details', results.get('error', 'Unknown error'))}"
-             # Use generic HTTPException to pass status and body safely
-             raise web.HTTPException(reason=reason, status=status_code, body=json.dumps(results))
+        if meili_results and isinstance(meili_results, dict) and "error" in meili_results:
+             status_code = meili_results.get("status_code", 500) or 500
+             reason = f"Civitai API Meili Search Error: {meili_results.get('details', meili_results.get('error', 'Unknown error'))}"
+             raise web.HTTPException(reason=reason, status=status_code, body=json.dumps(meili_results))
 
-        # Validate expected structure before processing
-        if results and isinstance(results, dict) and "items" in results and "metadata" in results:
-              # Process results to add convenience fields like thumbnailUrl
-             for item in results.get("items", []):
-                 thumbnail = None
-                 # Use modelVersions -> images -> url as primary source
-                 if item and isinstance(item.get("modelVersions"), list) and item["modelVersions"]:
-                     latest_version = item["modelVersions"][0] # Assume first is latest preview
-                     images = latest_version.get("images")
-                     if images and isinstance(images, list) and len(images) > 0:
-                         valid_images = [img for img in images if isinstance(img, dict) and img.get("url")]
-                         sorted_images = sorted(valid_images, key=lambda x: x.get('index', 0))
-                         # Prefer 'image' type first
-                         img_data = next((img for img in sorted_images if img.get("type") == "image"), None)
-                         if not img_data: img_data = next((img for img in sorted_images), None) # Fallback to any type
+        # --- Process Meili Response for Frontend ---
+        if meili_results and isinstance(meili_results, dict) and "hits" in meili_results:
+              processed_items = []
+              image_base_url = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7QA" # Base URL for images
 
-                         if img_data and img_data.get("url"):
-                             base_url = img_data["url"]
-                             # Try to create a thumbnail URL (e.g., width 256) - use same logic as download route
-                             try:
-                                 if "/width=" in base_url:
-                                      thumbnail = re.sub(r"/width=\d+", "/width=256", base_url)
-                                 elif "/blob/" in base_url:
-                                      thumbnail = base_url
-                                 else:
-                                      separator = "&" if "?" in base_url else "?"
-                                      thumbnail = f"{base_url}{separator}width=256"
-                             except Exception as e:
-                                 print(f"Warning: Thumbnail generation failed for search item {item.get('id')}, URL {base_url}: {e}")
-                                 thumbnail = base_url # Fallback
-                 # Add to item dict, using None if still not found
-                 item["thumbnailUrl"] = thumbnail
+              for hit in meili_results.get("hits", []):
+                   if not isinstance(hit, dict): continue # Skip invalid hits
 
-             return web.json_response(results)
+                   thumbnail_url = None
+                   # Get thumbnail from images array (prefer first image)
+                   images = hit.get("images")
+                   if images and isinstance(images, list) and len(images) > 0:
+                       first_image = images[0]
+                       # Ensure first image is a dict with a 'url' field
+                       if isinstance(first_image, dict) and first_image.get("url"):
+                           image_id = first_image["url"]
+                           # Construct URL with a default width (e.g., 256 or 450)
+                           thumbnail_url = f"{image_base_url}/{image_id}/width=256" # Adjust width as needed
+
+                   # Extract latest version info (Meili response includes 'version' object for the primary version)
+                   latest_version_info = hit.get("version", {}) or {} # Ensure it's a dict
+
+                   # Prepare item structure for frontend (can pass raw hit + extras, or build a specific structure)
+                   # Let's pass the raw `hit` and add the `thumbnailUrl` and potentially other processed fields.
+                   hit['thumbnailUrl'] = thumbnail_url # Add processed thumbnail URL directly to the hit object
+
+                   # Optional: Add more processed fields if needed, e.g., formatted stats
+                   # hit['processedStats'] = { ... }
+
+                   processed_items.append(hit)
+
+              # --- Calculate Pagination Info ---
+              total_hits = meili_results.get("estimatedTotalHits", 0)
+              current_page = page # Use the requested page number
+              total_pages = math.ceil(total_hits / limit) if limit > 0 else 0
+
+              # --- Return Structure for Frontend ---
+              response_data = {
+                  "items": processed_items, # The array of processed hits
+                  "metadata": {
+                      "totalItems": total_hits,
+                      "currentPage": current_page,
+                      "pageSize": limit, # The limit used for the request
+                      "totalPages": total_pages,
+                      # Meili provides offset, limit, processingTimeMs which could also be passed if useful
+                      "meiliProcessingTimeMs": meili_results.get("processingTimeMs"),
+                      "meiliOffset": meili_results.get("offset"),
+                  }
+              }
+              return web.json_response(response_data)
         else:
-             # Handle unexpected format from API
-             print(f"[Server Search] Warning: Unexpected search result format: {results}")
-             # Return empty but valid structure
+             # Handle unexpected format from API or empty results
+             print(f"[Server Search] Warning: Unexpected Meili search result format or empty hits: {meili_results}")
              return web.json_response({"items": [], "metadata": {"totalItems": 0, "currentPage": page, "pageSize": limit, "totalPages": 0}}, status=500)
 
+    # --- Keep existing error handlers ---
     except web.HTTPError as http_err:
-         # Consistent error handling
+         # ... (keep existing HTTP error handling) ...
          body_detail = ""
          try:
               body_detail = await http_err.text() if hasattr(http_err, 'text') else http_err.body.decode('utf-8', errors='ignore') if http_err.body else ""
@@ -572,10 +620,23 @@ async def route_search_models(request):
          return web.json_response({"error": http_err.reason, "details": body_detail or "No details", "status_code": http_err.status}, status=http_err.status)
 
     except Exception as e:
+        # ... (keep existing generic error handling) ...
         print("--- Unhandled Error in /civitai/search ---")
         traceback.print_exc()
         print("--- End Error ---")
         return web.json_response({"error": "Internal Server Error", "details": f"An unexpected search error occurred: {str(e)}", "status_code": 500}, status=500)
+
+# Also add the endpoint to get base models (if needed by frontend dropdown)
+@prompt_server.routes.get("/civitai/base_models")
+async def route_get_base_models(request):
+    """API Endpoint to get the known base model types for filtering."""
+    try:
+        # Return the hardcoded list for now
+        # In future, this *could* fetch dynamically if Civitai provides an endpoint
+        return web.json_response({"base_models": AVAILABLE_MEILI_BASE_MODELS})
+    except Exception as e:
+        print(f"Error getting base model types: {e}")
+        return web.json_response({"error": "Internal Server Error", "details": str(e), "status_code": 500}, status=500)
 
 @prompt_server.routes.get("/civitai/model_types")
 async def route_get_model_types(request):

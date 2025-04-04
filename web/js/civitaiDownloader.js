@@ -74,35 +74,47 @@ function addMenuButton() {
     }
 
     const civitaiButton = document.createElement("button");
-    civitaiButton.textContent = "Civicomfy"; // Shorter text fits better in the group
+    civitaiButton.textContent = "Civicomfy";
     civitaiButton.id = "civitai-downloader-button";
-    // Optional: Add Tooltip
     civitaiButton.title = "Open Civicomfy";
 
-    civitaiButton.onclick = () => {
-        // Initialize the UI class instance on the first click
+    civitaiButton.onclick = async () => { // Make onclick async
+        // Initialize the UI class instance ONCE on the first click
         if (!window.civitaiDownloaderUI) {
-            console.info("[Civicomfy] Initializing CivitaiDownloaderUI...");
-            window.civitaiDownloaderUI = new CivitaiDownloaderUI();
-            // Append the modal structure to the document body ONCE upon initialization
-            document.body.appendChild(window.civitaiDownloaderUI.modal);
-            // Load settings and populate model types *after* HTML is in DOM
-            window.civitaiDownloaderUI.loadAndApplySettings(); // Renamed init function
-            window.civitaiDownloaderUI.populateModelTypes();
+            console.info("[Civicomfy] Creating CivitaiDownloaderUI instance...");
+            window.civitaiDownloaderUI = new CivitaiDownloaderUI(); // Builds HTML, caches elements, sets default settings
+            document.body.appendChild(window.civitaiDownloaderUI.modal); // Append modal structure to body
+
+            // Initialize UI components (fetch types, base models, load/apply settings)
+            try {
+                 await window.civitaiDownloaderUI.initializeUI();
+                 console.info("[Civicomfy] UI Initialization complete.");
+            } catch (error) {
+                 console.error("[Civicomfy] Error during UI initialization:", error);
+                 // Attempt to show a toast even if initialization failed partially
+                 if (window.civitaiDownloaderUI && window.civitaiDownloaderUI.showToast) {
+                     window.civitaiDownloaderUI.showToast("Error initializing UI components. Check console.", "error", 5000);
+                 }
+            }
         }
-        // Always open the (potentially newly created) modal
-        window.civitaiDownloaderUI.openModal();
+        // Always open the (potentially newly created and initialized) modal
+        if (window.civitaiDownloaderUI) {
+            window.civitaiDownloaderUI.openModal();
+        } else {
+             // Fallback if initialization failed very early
+             console.error("[Civicomfy] Cannot open modal: UI instance not available.");
+             alert("Civicomfy failed to initialize. Please check the browser console for errors.");
+        }
     };
 
     // Append the new button to the main button group
     buttonGroup.appendChild(civitaiButton);
     console.log("[Civicomfy] Civicomfy button added to .comfyui-button-group.");
 
-    // Fallback (less likely needed, but safe): If appending failed but menu exists, add to menu
+    // Fallback logic (remains the same)
     const menu = document.querySelector(".comfy-menu");
     if (!buttonGroup.contains(civitaiButton) && menu && !menu.contains(civitaiButton)) {
         console.warn("[Civicomfy] Failed to append button to group, falling back to menu.");
-         // Insert before settings as a last resort if group append failed
         const settingsButton = menu.querySelector("#comfy-settings-button");
         if (settingsButton) {
             settingsButton.insertAdjacentElement("beforebegin", civitaiButton);
@@ -116,6 +128,7 @@ function addMenuButton() {
 class CivitaiDownloaderAPI {
     static async _request(endpoint, options = {}) {
         try {
+            
             // Add prefix if it doesn't exist
             const url = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
             const response = await api.fetchApi(url, options); // Use api.fetchApi directly
@@ -190,11 +203,16 @@ class CivitaiDownloaderAPI {
     }
 
     static async searchModels(params) {
-        return await this._request('/civitai/search', {
+        return await this._request('/civitai/search', { // Endpoint URL is the same
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(params),
+            body: JSON.stringify(params), // Send new params including base_models
         });
+    }
+
+    // Add method to fetch base models for the filter dropdown
+    static async getBaseModels() {
+        return await this._request('/civitai/base_models');
     }
 
     static async getModelTypes() {
@@ -212,7 +230,8 @@ class CivitaiDownloaderUI {
         this.modelTypes = {}; // { internal_key: display_name }
         this.statusInterval = null;
         this.statusData = { queue: [], active: [], history: [] };
-        this.searchPagination = { currentPage: 1, totalPages: 1, limit: 10 }; // Consistent limit
+        this.baseModels = [];
+        this.searchPagination = { currentPage: 1, totalPages: 1, limit: 20 }; // Consistent limit
         this.settings = this.getDefaultSettings(); // Initialize with defaults first
         this.toastTimeout = null;
 
@@ -313,6 +332,14 @@ class CivitaiDownloaderUI {
          // }
     }
 
+    async initializeUI() {
+        // This might be called after the modal is created and elements are cached
+        console.info("[Civicomfy] Initializing UI components...");
+        await this.populateModelTypes(); // Fetch model types first (essential for defaults)
+        await this.populateBaseModels(); // Fetch base models for search filter
+        this.loadAndApplySettings(); // Load and apply settings AFTER types are loaded
+    }
+
     buildModalHTML() {
         this.modal = document.createElement('div');
         this.modal.className = 'civitai-downloader-modal';
@@ -368,36 +395,34 @@ class CivitaiDownloaderUI {
                     <div id="civitai-tab-search" class="civitai-downloader-tab-content">
                         <form id="civitai-search-form">
                             <div class="civitai-search-controls">
-                                <input type="text" id="civitai-search-query" class="civitai-input" placeholder="Search Civitai..." required>
+                                <input type="text" id="civitai-search-query" class="civitai-input" placeholder="Search Civitai..."> <!-- Remove required -->
                                 <select id="civitai-search-type" class="civitai-select">
                                     <option value="any">Any Type</option>
-                                    <!-- Model types will be populated here -->
+                                    <!-- Model types populated here -->
+                                </select>
+                                <!-- ADDED: Base Model Filter Dropdown -->
+                                <select id="civitai-search-base-model" class="civitai-select">
+                                    <option value="any">Any Base Model</option>
+                                    <!-- Base models populated here -->
                                 </select>
                                 <select id="civitai-search-sort" class="civitai-select">
+                                    <option value="Relevancy">Relevancy</option>
                                     <option value="Highest Rated">Highest Rated</option>
+                                    <option value="Most Liked">Most Liked</option>
+                                    <option value="Most Discussed">Most Discussed</option> 
+                                    <option value="Most Collected">Most Collected</option>
+                                    <option value="Most Buzz">Most Buzz</option>
                                     <option value="Most Downloaded">Most Downloaded</option>
                                     <option value="Newest">Newest</option>
                                 </select>
-                                <select id="civitai-search-period" class="civitai-select">
-                                    <option value="AllTime">All Time</option>
-                                    <option value="Year">Past Year</option>
-                                    <option value="Month">Past Month</option>
-                                    <option value="Week">Past Week</option>
-                                    <option value="Day">Past Day</option>
-                                </select>
-                                <!-- NSFW Filter - uncomment and adjust if API supports boolean -->
-                                <div class="civitai-form-group inline" style="align-self: center;" title="Requires API key for authenticated NSFW filtering">
-                                    <input type="checkbox" id="civitai-search-nsfw" class="civitai-checkbox">
-                                    <label for="civitai-search-nsfw">Include NSFW</label>
-                                </div>
                             </div>
                         <button type="submit" id="civitai-search-submit" class="civitai-button primary">Search</button>
                         </form>
                         <div id="civitai-search-results" class="civitai-search-results">
-                            <!-- Search results will be populated here -->
+                            <!-- Search results -->
                         </div>
-                         <div id="civitai-search-pagination" style="text-align: center; margin-top: 20px;">
-                             <!-- Pagination controls -->
+                        <div id="civitai-search-pagination" style="text-align: center; margin-top: 20px;">
+                            <!-- Pagination -->
                         </div>
                     </div>
                     <div id="civitai-tab-status" class="civitai-downloader-tab-content">
@@ -485,9 +510,9 @@ class CivitaiDownloaderUI {
         this.searchForm = this.modal.querySelector('#civitai-search-form');
         this.searchQueryInput = this.modal.querySelector('#civitai-search-query');
         this.searchTypeSelect = this.modal.querySelector('#civitai-search-type');
+        this.searchBaseModelSelect = this.modal.querySelector('#civitai-search-base-model');
         this.searchSortSelect = this.modal.querySelector('#civitai-search-sort');
         this.searchPeriodSelect = this.modal.querySelector('#civitai-search-period');
-        this.searchNsfwCheckbox = this.modal.querySelector('#civitai-search-nsfw'); 
         this.searchSubmitButton = this.modal.querySelector('#civitai-search-submit');
         this.searchResultsContainer = this.modal.querySelector('#civitai-search-results');
         this.searchPaginationContainer = this.modal.querySelector('#civitai-search-pagination');
@@ -553,8 +578,19 @@ class CivitaiDownloaderUI {
         });
 
         // Search form submission
-         this.searchForm.addEventListener('submit', (event) => {
+        this.searchForm.addEventListener('submit', (event) => {
             event.preventDefault();
+            // Validate that there's at least a query or a filter selected
+            if (!this.searchQueryInput.value.trim() &&
+                this.searchTypeSelect.value === 'any' &&
+                this.searchBaseModelSelect.value === 'any')
+            {
+                 this.showToast("Please enter a search query or select a Type/Base Model filter.", "error");
+                 if (this.searchResultsContainer) this.searchResultsContainer.innerHTML = '<p>Please enter a search query or select a filter.</p>';
+                 if (this.searchPaginationContainer) this.searchPaginationContainer.innerHTML = ''; // Clear pagination
+                 return;
+            }
+
             this.searchPagination.currentPage = 1; // Reset to first page on new search
             this.handleSearchSubmit();
         });
@@ -585,86 +621,105 @@ class CivitaiDownloaderUI {
         });
 
          // Search result Actions (Download Button)
+        // Search result Actions (Download Button and Show All Versions) - MODIFIED
         this.searchResultsContainer.addEventListener('click', (event) => {
-            const button = event.target.closest('.civitai-search-download-button');
-            if (!button) return; // Exit if click wasn't on the download button
+            const downloadButton = event.target.closest('.civitai-search-download-button');
+            const viewAllButton = event.target.closest('.show-all-versions-button'); // ADDED: Check for this button
 
-            const modelId = button.dataset.modelId;
-            const versionId = button.dataset.versionId;
-            const modelTypeApi = button.dataset.modelType; // Civitai's type for the model
-            const defaultSaveTypeKey = this.settings.defaultModelType; // User's preferred save location key
+            if (downloadButton) { // Existing download logic
+                 // Prevent handling if the click was also somehow on the view all button ancestor (unlikely but safe)
+                 if (viewAllButton && downloadButton.contains(viewAllButton)) return;
 
-            if (!modelId || !versionId) {
-                 console.error("Missing model/version ID on search download button.");
-                 this.showToast("Error: Missing data for download.", "error");
-                 return;
+                const modelId = downloadButton.dataset.modelId;
+                const versionId = downloadButton.dataset.versionId;
+                const modelTypeApi = downloadButton.dataset.modelType;
+                const defaultSaveTypeKey = this.settings.defaultModelType;
+
+                if (!modelId || !versionId) {
+                    console.error("Missing model/version ID on search download button.");
+                    this.showToast("Error: Missing data for download.", "error");
+                    return;
+                }
+
+                // Determine save location... (rest of your existing download logic)
+                const modelTypeInternalKey = Object.keys(this.modelTypes).find(key =>
+                    (this.modelTypes[key]?.toLowerCase() === modelTypeApi?.toLowerCase()) ||
+                    (key === modelTypeApi?.toLowerCase())
+                ) || defaultSaveTypeKey;
+
+                console.log(`Search DL: ModelID=${modelId}, VersionID=${versionId}, API Type=${modelTypeApi}, Target Save Key=${modelTypeInternalKey}`);
+
+                this.modelUrlInput.value = modelId;
+                this.modelVersionIdInput.value = versionId;
+                this.customFilenameInput.value = '';
+                this.forceRedownloadCheckbox.checked = false;
+                this.downloadConnectionsInput.value = this.settings.numConnections;
+
+                this.switchTab('download');
+
+                if (this.downloadModelTypeSelect.querySelector(`option[value="${modelTypeInternalKey}"]`)) {
+                    this.downloadModelTypeSelect.value = modelTypeInternalKey;
+                    console.log(`Set download dropdown value AFTER switchTab to: ${modelTypeInternalKey}`);
+                } else {
+                    console.warn(`Target save type '${modelTypeInternalKey}' not found in dropdown after switchTab. Default '${defaultSaveTypeKey}' should be selected.`);
+                }
+
+                this.showToast(`Filled download form for Model ID ${modelId}. Review save location.`, 'info', 4000);
+                return; // Important: Stop further processing if it was a download button
+
+            } else if (viewAllButton) { // **** ADDED: Handler for 'Show All Versions' ****
+                 const modelId = viewAllButton.dataset.modelId;
+                 if (!modelId) {
+                     console.error("Missing model ID on show-all-versions button.");
+                     return;
+                 }
+
+                 // Find the container holding the extra versions within the same search result item
+                 // The container ID was set in renderSearchResults as `all-versions-${modelId}`
+                 const versionsContainer = this.searchResultsContainer.querySelector(`#all-versions-${modelId}`);
+                 const icon = viewAllButton.querySelector('i'); // Get the icon element
+
+                 if (versionsContainer) {
+                     const currentlyVisible = versionsContainer.style.display !== 'none';
+                     if (currentlyVisible) {
+                         // Hide the versions
+                         versionsContainer.style.display = 'none';
+                         // Restore original button text/icon
+                         viewAllButton.innerHTML = `All versions (${viewAllButton.dataset.totalVersions}) <i class="fas fa-chevron-down"></i>`;
+                         viewAllButton.title = `Show all ${viewAllButton.dataset.totalVersions} versions`;
+                         // Optional: Set ARIA attribute for accessibility
+                         // viewAllButton.setAttribute('aria-expanded', 'false');
+                     } else {
+                         // Show the versions (use 'block' or 'flex' or 'grid' depending on how you want them displayed)
+                         // Setting to 'block' is usually safe for simple buttons vertically listed.
+                         // You might need 'display: flex; flex-direction: column; gap: 5px;' via CSS instead.
+                         versionsContainer.style.display = 'flex';
+                         // Change button text/icon
+                         viewAllButton.innerHTML = `Show less <i class="fas fa-chevron-up"></i>`;
+                         viewAllButton.title = `Show less versions`;
+                         // Optional: Set ARIA attribute for accessibility
+                         // viewAllButton.setAttribute('aria-expanded', 'true');
+                     }
+                 } else {
+                     console.warn(`Could not find versions container #all-versions-${modelId}`);
+                 }
+                 return; // Stop further processing
             }
 
-            // Determine the best *SAVE* location type (internal key like 'lora', 'checkpoint')
-            // Map the API type (e.g., "LORA", "Checkpoint") back to our internal keys
-            const modelTypeInternalKey = Object.keys(this.modelTypes).find(key =>
-                (this.modelTypes[key]?.toLowerCase() === modelTypeApi?.toLowerCase()) || // Direct match display name
-                (key === modelTypeApi?.toLowerCase()) // Match internal key if API returns that
-            ) || defaultSaveTypeKey; // Fallback to user default if type is unknown/unmappable
-
-            console.log(`Search DL: ModelID=${modelId}, VersionID=${versionId}, API Type=${modelTypeApi}, Target Save Key=${modelTypeInternalKey}`);
-
-            // --- Pre-fill the form fields (EXCEPT the dropdown for now) ---
-            this.modelUrlInput.value = modelId; // Use ID for simplicity on form
-            this.modelVersionIdInput.value = versionId;
-            this.customFilenameInput.value = ''; // Clear custom filename
-            this.forceRedownloadCheckbox.checked = false;
-            this.downloadConnectionsInput.value = this.settings.numConnections; // Set connections from settings
-
-            // --- Switch tab FIRST ---
-            // This will run the default-setting logic inside switchTab
-            this.switchTab('download');
-
-            // --- NOW, set the specific dropdown value AFTER switching ---
-            // This overrides the default set by switchTab with the value from the search result
-            if (this.downloadModelTypeSelect.querySelector(`option[value="${modelTypeInternalKey}"]`)) {
-                this.downloadModelTypeSelect.value = modelTypeInternalKey;
-                console.log(`Set download dropdown value AFTER switchTab to: ${modelTypeInternalKey}`);
-            } else {
-                // If the determined key isn't valid for some reason, it will have already been set
-                // to the 'defaultSaveTypeKey' by the switchTab logic, so we just log a warning.
-                console.warn(`Target save type '${modelTypeInternalKey}' not found in dropdown after switchTab. Default '${defaultSaveTypeKey}' should be selected.`);
-                // Optionally force the default again just to be absolutely sure, though likely redundant:
-                // this.downloadModelTypeSelect.value = defaultSaveTypeKey;
-            }
-
-            // --- Show feedback ---
-            this.showToast(`Filled download form for Model ID ${modelId}. Review save location.`, 'info', 4000);
+            // If other delegated events are needed within searchResultsContainer, add more `else if` blocks here.
         });
 
         // Pagination (using event delegation)
-         this.searchPaginationContainer.addEventListener('click', (event) => {
+        this.searchPaginationContainer.addEventListener('click', (event) => {
             const button = event.target.closest('.civitai-page-button');
              if (button && !button.disabled) { // Check if button and not disabled
                  const page = parseInt(button.dataset.page, 10);
                  if (page && page !== this.searchPagination.currentPage) {
                      this.searchPagination.currentPage = page;
-                     this.handleSearchSubmit(); // Re-run search for the new page
+                     this.handleSearchSubmit(); // <-- **** UNCOMMENT THIS LINE ****
                  }
              }
          });
-
-         // Enable/Disable NSFW search checkbox based on API key presence (optional)
-         
-         if (this.settings.apiKey && this.searchNsfwCheckbox) {
-             const updateNsfwState = () => {
-                 const hasApiKey = this.settings.apiKey !== '';
-                 this.searchNsfwCheckbox.disabled = !hasApiKey;
-                 if (!hasApiKey) {
-                     this.searchNsfwCheckbox.checked = false; // Uncheck if disabled
-                     this.searchNsfwCheckbox.parentElement.title = "Requires API key for authenticated NSFW filtering";
-                 } else {
-                      this.searchNsfwCheckbox.parentElement.title = ""; // Clear tooltip
-                 }
-             };
-              this.settingsApiKeyInput.addEventListener('input', updateNsfwState);
-              updateNsfwState(); // Initial check
-         }
          
     }
 
@@ -838,44 +893,36 @@ class CivitaiDownloaderUI {
         }
     }
 
-     async handleSearchSubmit() {
+    async handleSearchSubmit() {
         this.searchSubmitButton.disabled = true;
         this.searchSubmitButton.textContent = 'Searching...';
-        this.searchResultsContainer.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Searching...</p>'; // Indicate loading
-        this.searchPaginationContainer.innerHTML = ''; // Clear old pagination
+        this.searchResultsContainer.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Searching...</p>';
+        this.searchPaginationContainer.innerHTML = '';
 
-        const searchQuery = this.searchQueryInput.value.trim();
-        if (!searchQuery) {
-            this.showToast("Search query cannot be empty.", "error");
-            this.searchResultsContainer.innerHTML = '<p>Please enter a search query.</p>';
-            this.searchSubmitButton.disabled = false;
-            this.searchSubmitButton.textContent = 'Search';
-            return;
-        }
+        // No need for separate validation here, done in event listener
 
         const params = {
-            query: searchQuery,
-            // Send selected internal type key (e.g., "lora") or empty array for "any"
+            query: this.searchQueryInput.value.trim(),
+            // Send selected *internal type key* (e.g., "lora") or empty array for "any"
+            // Backend will map this key to the correct API type name (e.g., "LORA")
             model_types: this.searchTypeSelect.value === 'any' ? [] : [this.searchTypeSelect.value],
-            sort: this.searchSortSelect.value,
-            period: this.searchPeriodSelect.value,
+            // Send selected *base model name* (e.g., "SD 1.5") or empty array for "any"
+            base_models: this.searchBaseModelSelect.value === 'any' ? [] : [this.searchBaseModelSelect.value],
+            sort: this.searchSortSelect.value, // Send display value (e.g., "Most Downloaded")
             limit: this.searchPagination.limit,
             page: this.searchPagination.currentPage,
-            api_key: this.settings.apiKey, // Pass API key for potentially authenticated search/filtering
-            nsfw: this.searchNsfwCheckbox ? this.searchNsfwCheckbox.checked : null // Pass NSFW preference if checkbox exists
+            api_key: this.settings.apiKey,
         };
 
         try {
-            const results = await CivitaiDownloaderAPI.searchModels(params);
-
-            // Basic validation of results structure
-             if (!results || !results.metadata || !Array.isArray(results.items)) {
-                console.error("Invalid search response structure:", results);
+            const response = await CivitaiDownloaderAPI.searchModels(params);
+            if (!response || !response.metadata || !Array.isArray(response.items)) {
+                console.error("Invalid search response structure:", response);
                 throw new Error("Received invalid data from search API.");
             }
 
-            this.renderSearchResults(results);
-            this.renderSearchPagination(results.metadata);
+            this.renderSearchResults(response.items); // Pass only the items array to render function
+            this.renderSearchPagination(response.metadata); // Pass metadata object
 
         } catch (error) {
             const message = `Search failed: ${error.details || error.message || 'Unknown error'}`;
@@ -885,13 +932,9 @@ class CivitaiDownloaderUI {
         } finally {
             this.searchSubmitButton.disabled = false;
             this.searchSubmitButton.textContent = 'Search';
-             // Ensure spinner icon is removed if search fails early
-             if (this.searchResultsContainer.innerHTML.includes("fa-spinner")) {
-                 // Already replaced with error message above, so this is likely redundant
-                  this.searchResultsContainer.innerHTML = `<p>Search failed.</p>`;
-             }
         }
     }
+
 
     handleSettingsSave() {
         console.log("Saving settings...");
@@ -1222,184 +1265,7 @@ class CivitaiDownloaderUI {
          }
      }
 
-     renderSearchResults(results) {
-        // Add FontAwesome link if not already present
-        this.ensureFontAwesome();
-
-        if (!results || !results.items || results.items.length === 0) {
-            const message = this.searchQueryInput.value
-                           ? 'No models found matching your criteria.'
-                           : 'Enter a query and click Search.';
-            this.searchResultsContainer.innerHTML = `<p>${message}</p>`;
-            return;
-        }
-
-        const placeholder = PLACEHOLDER_IMAGE_URL; // Make sure this is defined elsewhere
-        const onErrorScript = `this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';`;
-        const fragment = document.createDocumentFragment();
-
-        console.log(results);
-        console.log(results.items);
-
-        results.items.forEach(item => {
-            // Safely access nested data
-            const modelId = item.id;
-            const creator = item.creator?.username || 'Unknown Creator'; // More specific default
-            const modelName = item.name || 'Untitled Model';
-            const type = item.type || 'N/A'; // Use N/A for type consistency
-            const stats = item.stats || {};
-            const tags = item.tags || [];
-
-            // Get version info
-            const modelVersions = item.modelVersions || [];
-            const latestVersions = modelVersions.slice(0, 3);
-            const hasMoreVersions = modelVersions.length > 3;
-
-            // Extract Unique Base Models
-            const uniqueBaseModels = modelVersions.length > 0
-                ? [...new Set(modelVersions.map(v => v.baseModel).filter(Boolean))]
-                : [];
-            const baseModelsDisplay = uniqueBaseModels.length > 0
-                ? uniqueBaseModels.join(', ')
-                : 'N/A';
-
-            // Extract and Format Latest Update Date
-            let latestDateFormatted = 'N/A';
-            if (modelVersions.length > 0 && modelVersions[0].publishedAt) {
-                try {
-                    const latestDate = new Date(modelVersions[0].publishedAt);
-                    latestDateFormatted = latestDate.toLocaleDateString('en-GB', {
-                        day: 'numeric', month: 'long', year: 'numeric'
-                    });
-                } catch (e) {
-                    console.error(`Error parsing date for model ${modelId}:`, modelVersions[0].publishedAt, e);
-                    latestDateFormatted = 'Invalid Date';
-                }
-            }
-
-            // Use pre-processed thumb from backend or fallback
-            const thumbnailUrl = item.thumbnailUrl || placeholder;
-
-            const listItem = document.createElement('div');
-            listItem.className = 'civitai-search-item';
-            listItem.dataset.modelId = modelId;
-
-            // Generate version buttons HTML
-            let versionButtonsHtml = latestVersions.map(version => {
-                const versionId = version.id;
-                const baseModel = version.baseModel || 'Unknown';
-                return `
-                    <button class="civitai-button primary small civitai-search-download-button"
-                            data-model-id="${modelId}"
-                            data-version-id="${versionId || ''}"
-                            data-model-type="${type || ''}" ${/* Pass original type here if needed for download */''}
-                            ${!versionId ? 'disabled title="No version ID found for download"' : 'title="Pre-fill Download Tab"'} >
-                        <span class="base-model-badge">${baseModel}</span> ${version.name} <i class="fas fa-download"></i>
-                    </button>
-                `;
-            }).join('');
-
-            // "All versions" button
-            const moreButtonHtml = hasMoreVersions ? `
-                <button class="civitai-button secondary small show-all-versions-button"
-                        data-model-id="${modelId}"
-                        title="Show all versions">
-                    All versions (${modelVersions.length}) <i class="fas fa-chevron-down"></i>
-                </button>
-            ` : '';
-
-            // All versions container
-            let allVersionsHtml = '';
-            if (hasMoreVersions) {
-                allVersionsHtml = `
-                    <div class="all-versions-container" id="all-versions-${modelId}" style="display: none;">
-                        ${modelVersions.slice(3).map(version => {
-                            const versionId = version.id;
-                            const baseModel = version.baseModel || 'Unknown';
-                            return `
-                                <button class="civitai-button primary small civitai-search-download-button"
-                                        data-model-id="${modelId}"
-                                        data-version-id="${versionId || ''}"
-                                        data-model-type="${type || ''}" ${/* Pass original type here if needed for download */''}
-                                        ${!versionId ? 'disabled title="No version ID found for download"' : 'title="Pre-fill Download Tab"'} >
-                                    <span class="base-model-badge">${baseModel}</span> ${version.name} <i class="fas fa-download"></i>
-                                </button>
-                            `;
-                        }).join('')}
-                    </div>
-                `;
-            }
-
-            listItem.innerHTML = `
-                <!-- NEW: Thumbnail container for positioning badge -->
-                <div class="civitai-thumbnail-container">
-                    <img src="${thumbnailUrl}" alt="${modelName} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
-                    <!-- NEW: Type badge positioned over thumbnail -->
-                    <div class="civitai-type-badge">${type}</div>
-                </div>
-                <div class="civitai-search-info">
-                    <h4>${modelName}</h4>
-                    <!-- UPDATED: Meta info row -->
-                    <div class="civitai-search-meta-info">
-                        <span title="Creator"><i class="fas fa-user"></i> ${creator}</span>
-                        <span title="Base Models"><i class="fas fa-layer-group"></i> ${baseModelsDisplay}</span>
-                        <span title="Last Updated"><i class="fas fa-calendar-alt"></i> ${latestDateFormatted}</span>
-                    </div>
-                    <!-- REMOVED: Old p tag with creator/type -->
-                    <div class="civitai-search-stats">
-                        <span title="Downloads"><i class="fas fa-download"></i> ${stats.downloadCount?.toLocaleString() || 0}</span>
-                        <span title="Likes"><i class="fas fa-thumbs-up"></i> ${stats.thumbsUpCount?.toLocaleString() || 0}</span>
-                        <span title="Dislikes"><i class="fas fa-thumbs-down"></i> ${stats.thumbsDownCount?.toLocaleString() || 0}</span>
-                        <span title="Buzz"><i class="fas fa-bolt"></i> ${stats.tippedAmountCount?.toLocaleString() || 0}</span>
-                    </div>
-                    ${tags.length > 0 ? `
-                    <div class="civitai-search-tags">
-                        ${tags.slice(0, 5).map(tag => `<span class="civitai-search-tag">${tag}</span>`).join('')}
-                        ${tags.length > 5 ? `<span class="civitai-search-tag">...</span>` : ''}
-                    </div>
-                    ` : ''}
-                </div>
-                <div class="civitai-search-actions">
-                    <a href="https://civitai.com/models/${modelId}" target="_blank" rel="noopener noreferrer" class="civitai-button small" title="Open on Civitai website">View <i class="fas fa-external-link-alt"></i></a>
-                    <div class="version-buttons-container">
-                        ${versionButtonsHtml}
-                    </div>
-                    ${moreButtonHtml}
-                    ${allVersionsHtml}
-                </div>
-            `;
-
-            fragment.appendChild(listItem);
-        });
-
-        this.searchResultsContainer.innerHTML = ''; // Clear previous
-        this.searchResultsContainer.appendChild(fragment);
-
-        // Re-attach "All versions" button listeners
-        this.searchResultsContainer.querySelectorAll('.show-all-versions-button').forEach(button => {
-            button.addEventListener('click', () => {
-                const modelId = button.dataset.modelId;
-                const versionsContainer = document.getElementById(`all-versions-${modelId}`);
-                 // Find the item again to get the correct count for this specific model
-                const itemData = results.items.find(item => item.id == modelId);
-                const totalVersionCount = itemData?.modelVersions?.length || 0;
-
-                if (versionsContainer) {
-                    const isHidden = versionsContainer.style.display === 'none';
-                    versionsContainer.style.display = isHidden ? 'flex' : 'none';
-                    button.innerHTML = isHidden
-                        ? `Less <i class="fas fa-chevron-up"></i>`
-                        : `All versions (${totalVersionCount}) <i class="fas fa-chevron-down"></i>`;
-                }
-            });
-        });
-
-         // Add event listeners for download buttons (ensure this logic exists)
-         // Example:
-         // this.searchResultsContainer.querySelectorAll('.civitai-search-download-button').forEach(button => {
-         //    button.addEventListener('click', (event) => this.handleDownloadButtonClick(event));
-         // });
-    }
+     
 
     // Helper function to ensure FontAwesome is loaded (keep your existing implementation)
     ensureFontAwesome() {
@@ -1422,100 +1288,350 @@ class CivitaiDownloaderUI {
             document.head.appendChild(link);
         }
     }
-    
 
-     renderSearchPagination(metadata) {
-        if (!metadata || !metadata.pageSize || metadata.pageSize <= 1) {
-            console.log("NO PAGE " + metadata.pageSize)
-            this.searchPaginationContainer.innerHTML = '';
+    async populateBaseModels() {
+        console.log("[Civicomfy] Populating base models...");
+        try {
+            const result = await CivitaiDownloaderAPI.getBaseModels();
+            if (!result || !Array.isArray(result.base_models)) {
+                throw new Error("Invalid base models data format received.");
+            }
+            this.baseModels = result.base_models.sort(); // Store sorted list
+            console.log("[Civicomfy] Base models fetched:", this.baseModels);
+
+            // Clear existing options (after the "Any" option)
+            const existingOptions = Array.from(this.searchBaseModelSelect.options);
+            existingOptions.slice(1).forEach(opt => opt.remove()); // Keep index 0 ("Any")
+
+            // Populate dropdown
+            this.baseModels.forEach(baseModelName => {
+                const option = document.createElement('option');
+                option.value = baseModelName; // Value is the name itself
+                option.textContent = baseModelName;
+                this.searchBaseModelSelect.appendChild(option);
+            });
+            console.log("[Civicomfy] Base model dropdown populated.");
+
+        } catch (error) {
+             console.error("[Civicomfy] Failed to get or populate base models:", error);
+             this.showToast('Failed to load base models list', 'error');
+        }
+    }
+
+    renderSearchResults(items) { // Expects the array of hits (`processed_items` from backend)
+        this.ensureFontAwesome(); // Ensure FontAwesome is loaded
+
+        if (!items || items.length === 0) {
+            // Determine message based on whether filters/query were used
+            const queryUsed = this.searchQueryInput && this.searchQueryInput.value.trim();
+            const typeFilterUsed = this.searchTypeSelect && this.searchTypeSelect.value !== 'any';
+            const baseModelFilterUsed = this.searchBaseModelSelect && this.searchBaseModelSelect.value !== 'any';
+            const message = (queryUsed || typeFilterUsed || baseModelFilterUsed)
+                          ? 'No models found matching your criteria.'
+                          : 'Enter a query or select filters and click Search.';
+            this.searchResultsContainer.innerHTML = `<p>${message}</p>`;
             return;
         }
 
-         // Ensure current page from metadata is valid
-         const currentPage = metadata.currentPage && metadata.currentPage > 0 ? metadata.currentPage : 1;
-         const totalPages = metadata.pageSize;
+        const placeholder = PLACEHOLDER_IMAGE_URL; // Ensure this global var is accessible
+        const onErrorScript = `this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';`;
+        const fragment = document.createDocumentFragment();
 
-         // Update internal state (important for next search submit)
-         this.searchPagination.currentPage = currentPage;
-         this.searchPagination.totalPages = totalPages;
+        // console.log("Rendering Meili results:", items); // Debug: Log items received
 
-         const fragment = document.createDocumentFragment();
-         const maxButtons = 5; // Number of page number buttons to show (excluding prev/next/ellipsis)
+        items.forEach(hit => {
+            // --- Safely extract data from Meili hit object ---
+            const modelId = hit.id;
+            if (!modelId) {
+                console.warn("Skipping search result with missing ID:", hit);
+                return; // Skip if essential ID is missing
+            }
+            const creator = hit.user?.username || 'Unknown Creator';
+            const modelName = hit.name || 'Untitled Model';
+            const modelTypeApi = hit.type || 'N/A'; // API Type (e.g., LORA, Checkpoint)
+            const stats = hit.metrics || {}; // Top-level metrics
+            const tags = hit.tags?.map(t => t.name) || []; // Extract just the tag names
 
-         // Helper to create buttons
-         const createButton = (text, page, isDisabled = false, isCurrent = false) => {
-             const button = document.createElement('button');
-             button.className = `civitai-button small civitai-page-button ${isCurrent ? 'primary active' : ''}`;
-             button.dataset.page = page;
-             button.disabled = isDisabled;
-             button.innerHTML = text; // Use innerHTML to allow icons/entities
-             return button;
-         };
+            // Thumbnail URL (pre-processed by backend)
+            const thumbnailUrl = hit.thumbnailUrl || placeholder;
 
-         // Previous Button
-         fragment.appendChild(createButton('&laquo; Prev', currentPage - 1, currentPage === 1));
+            // --- Version Info ---
+            const allVersions = hit.versions || []; // Array of all available versions
+            const primaryVersion = hit.version || (allVersions.length > 0 ? allVersions[0] : {}); // Primary version details provided directly, fallback to first in array
+            const primaryVersionId = primaryVersion.id;
+            const primaryBaseModel = primaryVersion.baseModel || 'N/A'; // Base model from primary version
 
-         // Page Number Logic
-         let startPage, endPage;
-         if (totalPages <= maxButtons + 2) { // Show all pages if total is small
-             startPage = 1;
-             endPage = totalPages;
-         } else {
-             // Complex pagination (show start, middle around current, end)
-             const maxSideButtons = Math.floor((maxButtons - 1) / 2); // Buttons around current page
+            // Get unique base models across *all* versions for display (more comprehensive)
+            const uniqueBaseModels = allVersions.length > 0
+                ? [...new Set(allVersions.map(v => v.baseModel).filter(Boolean))]
+                : (primaryBaseModel !== 'N/A' ? [primaryBaseModel] : []); // Fallback to primary if array empty
+            const baseModelsDisplay = uniqueBaseModels.length > 0 ? uniqueBaseModels.join(', ') : 'N/A';
 
-             if (currentPage <= maxButtons - maxSideButtons) { // Near start
-                 startPage = 1;
-                 endPage = maxButtons;
-             } else if (currentPage >= totalPages - (maxButtons - maxSideButtons -1) ) { // Near end
-                 startPage = totalPages - maxButtons + 1;
-                 endPage = totalPages;
-             } else { // In the middle
-                 startPage = currentPage - maxSideButtons;
-                 endPage = currentPage + maxSideButtons;
-             }
-         }
+            // --- Latest Update Date ---
+            let lastUpdatedFormatted = 'N/A';
+            const publishedAt = hit.publishedAt; // Use publishedAt from main hit
+            if (publishedAt) {
+                try {
+                    const date = new Date(publishedAt);
+                    // Use a more standard locale format
+                    lastUpdatedFormatted = date.toLocaleDateString(undefined, { // undefined uses user's locale
+                        year: 'numeric', month: 'short', day: 'numeric'
+                    });
+                } catch (e) {
+                    console.error(`Error parsing date for model ${modelId}:`, publishedAt, e);
+                    lastUpdatedFormatted = 'Invalid Date';
+                }
+            }
 
-         // Add first page and ellipsis if needed
-         if (startPage > 1) {
-             fragment.appendChild(createButton('1', 1));
-             if (startPage > 2) {
-                 const ellipsis = document.createElement('span');
-                 ellipsis.style.margin = '0 5px';
-                 ellipsis.textContent = '...';
-                 fragment.appendChild(ellipsis);
-             }
-         }
+            // --- Create List Item ---
+            const listItem = document.createElement('div');
+            listItem.className = 'civitai-search-item';
+            listItem.dataset.modelId = modelId; // Add model ID for potential future use
 
-         // Add page number buttons
-         for (let i = startPage; i <= endPage; i++) {
-             fragment.appendChild(createButton(i.toString(), i, false, i === currentPage));
-         }
+            // --- Generate Version Buttons ---
+            // Show primary version first, then others, up to a limit initially
+            const MAX_VISIBLE_VERSIONS = 3;
+            let visibleVersions = [];
+            if (primaryVersionId) {
+                 // Ensure primary version object from `hit.version` has necessary fields
+                 const primaryVersionData = {
+                     id: primaryVersionId,
+                     name: primaryVersion.name || 'Primary Version',
+                     baseModel: primaryBaseModel,
+                     // Add other fields if needed by the button template
+                 };
+                 visibleVersions.push(primaryVersionData);
+            }
+            // Add other versions, ensuring no duplicates with the primary one if it was also in the array
+            allVersions.forEach(v => {
+                 if (v.id !== primaryVersionId && visibleVersions.length < MAX_VISIBLE_VERSIONS) {
+                     visibleVersions.push(v);
+                 }
+            });
 
-         // Add ellipsis and last page if needed
-         if (endPage < totalPages) {
-             if (endPage < totalPages - 1) {
-                 const ellipsis = document.createElement('span');
-                 ellipsis.style.margin = '0 5px';
-                 ellipsis.textContent = '...';
-                 fragment.appendChild(ellipsis);
-             }
-             fragment.appendChild(createButton(totalPages.toString(), totalPages));
-         }
+            // Generate HTML for initially visible version buttons
+            let versionButtonsHtml = visibleVersions.map(version => {
+                const versionId = version.id;
+                const versionName = version.name || 'Unknown Version';
+                const baseModel = version.baseModel || 'N/A';
+                return `
+                    <button class="civitai-button primary small civitai-search-download-button"
+                            data-model-id="${modelId}"
+                            data-version-id="${versionId || ''}"
+                            data-model-type="${modelTypeApi || ''}"
+                            ${!versionId ? 'disabled title="Version ID missing, cannot pre-fill"' : 'title="Pre-fill Download Tab"'} >
+                        <span class="base-model-badge">${baseModel}</span> ${versionName} <i class="fas fa-download"></i>
+                    </button>
+                `;
+            }).join(''); // Join the HTML strings
 
-         // Next Button
-         fragment.appendChild(createButton('Next &raquo;', currentPage + 1, currentPage === totalPages));
+            // --- "All/More Versions" Button Logic ---
+            const hasMoreVersions = allVersions.length > visibleVersions.length;
+            const totalVersionCount = allVersions.length;
+            const moreButtonHtml = hasMoreVersions ? `
+                <button class="civitai-button secondary small show-all-versions-button"
+                        data-model-id="${modelId}"
+                        data-total-versions="${totalVersionCount}"
+                        title="Show all ${totalVersionCount} versions">
+                    All versions (${totalVersionCount}) <i class="fas fa-chevron-down"></i>
+                </button>
+            ` : '';
 
-         // Display total pages info (optional)
-         const info = document.createElement('div');
-         info.style.marginTop = '10px';
-         info.style.fontSize = '0.9em';
-         info.textContent = `Page ${currentPage} of ${totalPages}`;
-         fragment.appendChild(info);
+            // --- Hidden Versions Container ---
+            let allVersionsHtml = '';
+            if (hasMoreVersions) {
+                // Get versions that are not already visible
+                const hiddenVersions = allVersions.filter(v => !visibleVersions.some(vis => vis.id === v.id));
+                allVersionsHtml = `
+                    <div class="all-versions-container" id="all-versions-${modelId}" style="display: none;">
+                        ${hiddenVersions.map(version => {
+                            const versionId = version.id;
+                            const versionName = version.name || 'Unknown Version';
+                            const baseModel = version.baseModel || 'N/A';
+                            return `
+                                <button class="civitai-button primary small civitai-search-download-button"
+                                        data-model-id="${modelId}"
+                                        data-version-id="${versionId || ''}"
+                                        data-model-type="${modelTypeApi || ''}"
+                                        ${!versionId ? 'disabled title="Version ID missing, cannot pre-fill"' : 'title="Pre-fill Download Tab"'} >
+                                    <span class="base-model-badge">${baseModel}</span> ${versionName} <i class="fas fa-download"></i>
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
 
-        this.searchPaginationContainer.innerHTML = ''; // Clear previous
+            // --- Construct Final Inner HTML for the List Item ---
+            listItem.innerHTML = `
+                <div class="civitai-thumbnail-container">
+                    <img src="${thumbnailUrl}" alt="${modelName} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
+                    <div class="civitai-type-badge">${modelTypeApi}</div>
+                </div>
+                <div class="civitai-search-info">
+                    <h4>${modelName}</h4>
+                    <div class="civitai-search-meta-info">
+                        <span title="Creator: ${creator}"><i class="fas fa-user"></i> ${creator}</span>
+                        <span title="Base Models: ${baseModelsDisplay}"><i class="fas fa-layer-group"></i> ${baseModelsDisplay}</span>
+                        <span title="Published: ${lastUpdatedFormatted}"><i class="fas fa-calendar-alt"></i> ${lastUpdatedFormatted}</span>
+                    </div>
+                    <div class="civitai-search-stats" title="Stats: Downloads / Rating (Count) / Likes">
+                        <span title="Downloads"><i class="fas fa-download"></i> ${stats.downloadCount?.toLocaleString() || 0}</span>
+                        <span title="Thumbs"><i class="fas fa-thumbs-up"></i> ${stats.thumbsUpCount?.toLocaleString() || 0}</span>
+                        <span title="Collected"><i class="fas fa-archive"></i> ${stats.collectedCount?.toLocaleString() || 0}</span>
+                        <span title="Buzz"><i class="fas fa-bolt"></i> ${stats.tippedAmountCount?.toLocaleString() || 0}</span>
+
+                    </div>
+                    ${tags.length > 0 ? `
+                    <div class="civitai-search-tags" title="${tags.join(', ')}">
+                        ${tags.slice(0, 5).map(tag => `<span class="civitai-search-tag">${tag}</span>`).join('')}
+                        ${tags.length > 5 ? `<span class="civitai-search-tag">...</span>` : ''}
+                    </div>
+                    ` : ''}
+                </div>
+                <div class="civitai-search-actions">
+                    <a href="https://civitai.com/models/${modelId}${primaryVersionId ? '?modelVersionId='+primaryVersionId : ''}" target="_blank" rel="noopener noreferrer" class="civitai-button small" title="Open on Civitai website">
+                        View <i class="fas fa-external-link-alt"></i>
+                    </a>
+                    <div class="version-buttons-container">
+                        ${versionButtonsHtml}
+                        ${moreButtonHtml} 
+                    </div>
+                    ${allVersionsHtml} 
+                </div> 
+            `; // End of listItem.innerHTML
+
+            fragment.appendChild(listItem); // Add the completed item to the fragment
+        }); // End forEach loop for hits
+
+        // --- Update the DOM ---
+        this.searchResultsContainer.innerHTML = ''; // Clear previous results/spinner
+        this.searchResultsContainer.appendChild(fragment);
+
+        // --- Post-render Actions ---
+        // Event listeners for download and "show all versions" buttons are handled
+        // by the event delegation set up in `setupEventListeners`. No need to re-attach here.
+
+    } // End renderSearchResults method
+    
+
+    renderSearchPagination(metadata) { // Expects the metadata object from backend { totalItems, currentPage, pageSize, totalPages, ... }
+        // Ensure the pagination container exists before proceeding
+        if (!this.searchPaginationContainer) {
+            console.error("Search pagination container not found in DOM.");
+            return;
+        }
+
+        if (!metadata || !metadata.totalPages || metadata.totalPages <= 1) {
+            this.searchPaginationContainer.innerHTML = ''; // Clear if no pagination needed
+            // Update internal state even if not rendering
+            this.searchPagination.currentPage = metadata?.currentPage || 1;
+            this.searchPagination.totalPages = metadata?.totalPages || 1;
+            this.searchPagination.totalItems = metadata?.totalItems || 0;
+            return;
+        }
+
+        // --- Extract pagination data ---
+        const currentPage = metadata.currentPage;
+        const totalPages = metadata.totalPages;
+        const totalItems = metadata.totalItems;
+        // Limit is taken from internal state `this.searchPagination.limit` as metadata.pageSize reflects the *requested* limit
+        const limit = this.searchPagination.limit;
+
+        // Update internal state (important for next search submit)
+        this.searchPagination.currentPage = currentPage;
+        this.searchPagination.totalPages = totalPages;
+        this.searchPagination.totalItems = totalItems;
+
+        const fragment = document.createDocumentFragment();
+        const maxButtons = 5; // Max number page buttons (e.g., 1 ... 4 5 6 ... 10)
+
+        // Helper to create buttons (reusable)
+        const createButton = (text, page, isDisabled = false, isCurrent = false) => {
+            const button = document.createElement('button');
+            // Use specific classes for styling and identification
+            button.className = `civitai-button small civitai-page-button ${isCurrent ? 'primary active' : ''}`;
+            button.dataset.page = page;
+            button.disabled = isDisabled;
+            button.innerHTML = text; // Allows HTML entities like &laquo;
+            button.type = 'button'; // Prevent potential form submission issues
+            return button;
+        };
+
+        // --- Previous Button ---
+        fragment.appendChild(createButton('&laquo; Prev', currentPage - 1, currentPage === 1));
+
+        // --- Page Number Buttons Logic ---
+        let startPage, endPage;
+        if (totalPages <= maxButtons + 2) { // Show all page numbers if total is small enough
+            startPage = 1;
+            endPage = totalPages;
+        } else {
+            // Calculate pages to show around the current page
+            const maxSideButtons = Math.floor((maxButtons - 1) / 2); // e.g., maxButtons=5 -> maxSide=2 -> shows Current-2, Current-1, Current, Current+1, Current+2
+
+            if (currentPage <= maxButtons - maxSideButtons) {
+                // Near the start: Show 1, 2, 3, 4, 5 ... LastPage
+                startPage = 1;
+                endPage = maxButtons;
+            } else if (currentPage >= totalPages - (maxButtons - maxSideButtons - 1)) {
+                // Near the end: Show FirstPage ... Last-4, Last-3, Last-2, Last-1, Last
+                startPage = totalPages - maxButtons + 1;
+                endPage = totalPages;
+            } else {
+                // In the middle: Show FirstPage ... Current-2, Current-1, Current, Current+1, Current+2 ... LastPage
+                startPage = currentPage - maxSideButtons;
+                endPage = currentPage + maxSideButtons;
+            }
+        }
+
+        // Add First page button and ellipsis if needed
+        if (startPage > 1) {
+            fragment.appendChild(createButton('1', 1)); // Always show first page
+            if (startPage > 2) {
+                // Add ellipsis if there's a gap between '1' and the startPage sequence
+                const ellipsis = document.createElement('span');
+                ellipsis.className = 'civitai-pagination-ellipsis';
+                ellipsis.textContent = '...';
+                fragment.appendChild(ellipsis);
+            }
+        }
+
+        // Add the calculated range of page number buttons
+        for (let i = startPage; i <= endPage; i++) {
+            fragment.appendChild(createButton(i.toString(), i, false, i === currentPage));}
+
+        // Add Ellipsis and Last page button if needed
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                // Add ellipsis if there's a gap between the endPage sequence and the LastPage
+                const ellipsis = document.createElement('span');
+                ellipsis.className = 'civitai-pagination-ellipsis';
+                ellipsis.textContent = '...';
+                fragment.appendChild(ellipsis);
+            }
+            fragment.appendChild(createButton(totalPages.toString(), totalPages)); // Always show last page if needed
+        }
+
+        // --- Next Button ---
+        fragment.appendChild(createButton('Next &raquo;', currentPage + 1, currentPage === totalPages));
+
+        // --- Display Total Items and Page Info ---
+        if (totalItems > 0) {
+            const info = document.createElement('div');
+            info.className = 'civitai-pagination-info'; // Add class for styling
+            info.textContent = `Page ${currentPage} of ${totalPages} (${totalItems.toLocaleString()} total models)`;
+            fragment.appendChild(info);
+        }
+
+        // --- Update the DOM ---
+        this.searchPaginationContainer.innerHTML = ''; // Clear previous pagination controls
         this.searchPaginationContainer.appendChild(fragment);
-    }
+
+        // Note: Event listeners for pagination buttons are handled by event delegation
+        // in setupEventListeners, targeting '.civitai-page-button'.
+
+    } // End renderSearchPagination method
 
      // --- Modal Control ---
 
@@ -1599,25 +1715,28 @@ class CivitaiDownloaderUI {
 // --- Initialization ---
 // Use app ready event to ensure ComfyUI is loaded and DOM is ready
 app.registerExtension({
-	name: "Civicomfy.CivitaiDownloader", // More specific name
+	name: "Civicomfy.CivitaiDownloader", // Specific name
 	async setup(appInstance) {
+         console.log("[Civicomfy] Setting up Civicomfy Extension...");
 
          // Inject the CSS file
          addCssLink();
 
-         // Add the menu button
+         // Add the menu button - Initialization of the UI class is now lazy,
+         // triggered on the first button click within addMenuButton.
          addMenuButton();
 
-         // Pre-check for placeholder image availability (optional, purely visual feedback)
+         // Optional: Pre-check placeholder image (remains the same)
          fetch(PLACEHOLDER_IMAGE_URL).then(res => {
             if (!res.ok) {
                 console.warn(`[Civicomfy] Placeholder image not found at ${PLACEHOLDER_IMAGE_URL}. UI elements might lack default images.`);
-            } else {
-                 // console.log(`[Civicomfy] Placeholder image OK at ${PLACEHOLDER_IMAGE_URL}`);
             }
         }).catch(err => console.warn("[Civicomfy] Error checking for placeholder image:", err));
 
-         console.log("[Civicomfy] Extension setup complete. Button added.");
+         // Font Awesome loading is handled within the UI class's rendering methods (`ensureFontAwesome`)
+         // to ensure it's available when icons are needed.
+
+         console.log("[Civicomfy] Extension setup complete. Button added, UI will initialize on first click.");
 	},
     // Optional: Add startup method if needed after nodes/graph is ready
     // async loadedGraphNode(node, app) { }
