@@ -24,7 +24,7 @@ class ChunkDownloader:
     STATUS_UPDATE_INTERVAL = 0.5
     HEAD_REQUEST_TIMEOUT = HEAD_REQUEST_TIMEOUT
     DOWNLOAD_TIMEOUT = DOWNLOAD_TIMEOUT
-    MIN_SIZE_FOR_MULTI_MB = 10  # Minimum file size for multi-connection download
+    MIN_SIZE_FOR_MULTI_MB = 100  # Minimum file size for multi-connection download
 
     def __init__(self, url: str, output_path: str, num_connections: int = 4,
                  chunk_size: int = DEFAULT_CHUNK_SIZE, manager: 'DownloadManager' = None,
@@ -83,10 +83,8 @@ class ChunkDownloader:
         if not self.is_cancelled:
             print(f"[Downloader {self.download_id or 'N/A'}] Cancellation requested by user.")
             self.cancel_event.set()
-            print("masok 1")
             self.error = "Download cancelled by user"
             if self.manager and self.download_id:
-                print("masok 2")
                 self.manager._update_download_status(self.download_id, status="cancelled", error=self.error)
 
     def _cleanup_temp(self, success: bool):
@@ -209,8 +207,7 @@ class ChunkDownloader:
                             print(f"[Downloader {self.download_id}] Segment {segment_index} cancelled mid-stream.")
                             # Ensure error is set if not already
                             if not self.error: self.error = "Cancelled during segment download"
-                            # No need to return immediately, finally block will close response
-                            raise OperationCancelled("Download cancelled by user signal.") # Raise specific exception
+                            
                             
                         if chunk:
                             bytes_written = f.write(chunk)

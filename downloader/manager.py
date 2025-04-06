@@ -274,8 +274,6 @@ class DownloadManager:
             if download_id in self.active_downloads:
                 item = self.active_downloads[download_id]
                 updated = False # Track if any field was actually updated
-                if status == "cancelled":
-                    print("masok 5 cancel lur")
                 # Only update if value is provided
                 if status is not None and item.get("status") != status:
                     item["status"] = status
@@ -304,7 +302,7 @@ class DownloadManager:
                     updated = True
 
                 # Optional: Log when an update actually happens
-                print(f"DEBUG - Updated status for {download_id}: Status={status}, Progress={progress}, Speed={speed}, Conn={connection_type}, Error={error}")
+                #print(f"DEBUG - Updated status for {download_id}: Status={status}, Progress={progress}, Speed={speed}, Conn={connection_type}, Error={error}")
 
 
     def _save_civitai_metadata(self, download_info: Dict[str, Any]):
