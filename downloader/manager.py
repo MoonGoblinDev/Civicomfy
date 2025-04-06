@@ -7,6 +7,10 @@ import datetime
 import os
 import json
 import requests
+import subprocess # For opening path
+import platform   # For checking OS
+import sys        # For checking OS
+
 from typing import List, Dict, Any, Optional
 
 # Use typing for Downloader class hint to avoid circular import
@@ -19,6 +23,15 @@ from ..config import (
     MAX_CONCURRENT_DOWNLOADS, DOWNLOAD_HISTORY_LIMIT, DEFAULT_CONNECTIONS,
     METADATA_SUFFIX, PREVIEW_SUFFIX, METADATA_DOWNLOAD_TIMEOUT
 )
+# Import ComfyUI path functions if available (adjust path as needed)
+try:
+    from folder_paths import get_directory_by_type, get_valid_path, base_path
+    COMFY_PATHS_AVAILABLE = True
+except ImportError:
+    print("[Civicomfy Manager] Warning: ComfyUI folder_paths not available. Path validation/opening might be limited.")
+    COMFY_PATHS_AVAILABLE = False
+    # Define fallback base_path if needed for security checks
+    base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")) # Adjust relative path based on your structure
 
 class DownloadManager:
     """Manages a queue of downloads, running them concurrently and saving metadata."""
@@ -26,6 +39,7 @@ class DownloadManager:
     def __init__(self, max_concurrent: int = MAX_CONCURRENT_DOWNLOADS):
         self.queue: List[Dict[str, Any]] = []
         self.active_downloads: Dict[str, Dict[str, Any]] = {} # {download_id: download_info}
+        # History now stores more complete dictionaries for retry functionality
         self.history: List[Dict[str, Any]] = []
         self.lock: threading.Lock = threading.Lock()
         self.max_concurrent: int = max(1, max_concurrent)
@@ -34,14 +48,14 @@ class DownloadManager:
         print(f"Civitai Download Manager starting (Max Concurrent: {self.max_concurrent}).")
         self._process_thread.start()
 
+    # --- add_to_queue remains largely the same, ensuring all necessary fields are initialized ---
     def add_to_queue(self, download_info: Dict[str, Any]) -> str:
         """Adds a download task to the queue."""
         with self.lock:
             # Generate a unique ID
             timestamp = int(time.time() * 1000)
-            # More robust ID generation (simple counter + filename hint)
             file_hint = os.path.basename(download_info.get('output_path', 'file'))[:10]
-            unique_num = sum(1 for item in self.queue if file_hint in item.get("id", ""))
+            unique_num = sum(1 for item in self.queue if file_hint in item.get("id", "") or any(file_hint in h.get("id","") for h in self.history)) # Check history too
             download_id = f"dl_{timestamp}_{unique_num}_{file_hint}"
 
             # Set initial status and info
@@ -53,160 +67,180 @@ class DownloadManager:
             download_info["error"] = None
             download_info["start_time"] = None
             download_info["end_time"] = None
-            download_info["connection_type"] = "N/A" # Initialize connection type
+            download_info["connection_type"] = "N/A"
 
-            # Ensure common optional fields exist (even if None) - simplifies access later
-            if "num_connections" not in download_info:
-                 download_info["num_connections"] = DEFAULT_CONNECTIONS
-            if "known_size" not in download_info:
-                 download_info["known_size"] = None
-            if "api_key" not in download_info:
-                 download_info["api_key"] = None
-            if "thumbnail" not in download_info:
-                 download_info["thumbnail"] = None
-            # Ensure metadata dicts exist
-            if "civitai_model_info" not in download_info:
-                 download_info["civitai_model_info"] = {}
-            if "civitai_version_info" not in download_info:
-                 download_info["civitai_version_info"] = {}
-            if "civitai_primary_file" not in download_info:
-                 download_info["civitai_primary_file"] = {}
+            # --- Ensure all fields potentially needed for retry exist ---
+            # (Most were likely already filled by the calling route, but double-check)
+            required_for_retry = [
+                'url', 'output_path', 'num_connections', 'api_key', 'known_size',
+                'civitai_model_info', 'civitai_version_info', 'civitai_primary_file',
+                'thumbnail', 'filename', 'model_url_or_id', 'model_version_id', 'model_type',
+                'custom_filename', 'force_redownload' # Add force_redownload too
+            ]
+            for key in required_for_retry:
+                if key not in download_info:
+                    # Add default or None if missing. More robust handling might be needed
+                    # depending on how routes.py prepares the dict.
+                    if key in ['civitai_model_info', 'civitai_version_info', 'civitai_primary_file']:
+                        download_info[key] = {}
+                    elif key == 'num_connections':
+                        download_info[key] = DEFAULT_CONNECTIONS
+                    elif key == 'force_redownload':
+                        download_info[key] = False # Default for new downloads
+                    else:
+                        download_info[key] = None
+                    print(f"[Manager Warning] Queued item '{download_id}' missing '{key}', added default.")
 
             self.queue.append(download_info)
             print(f"[Manager] Queued: {download_info.get('filename', 'N/A')} (ID: {download_id}, Size: {download_info.get('known_size', 'Unknown')})")
             return download_id
 
+    # --- cancel_download remains the same ---
     def cancel_download(self, download_id: str) -> bool:
-            """Requests cancellation of a queued or active download."""
-            print(f"[Manager] Received cancellation request for: {download_id}") # Moved print earlier
-            downloader_to_cancel: Optional['ChunkDownloader'] = None
-            found_in_active = False
+        """Requests cancellation of a queued or active download."""
+        # ... (no changes needed here) ...
+        print(f"[Manager] Received cancellation request for: {download_id}") # Moved print earlier
+        downloader_to_cancel: Optional['ChunkDownloader'] = None
+        found_in_active = False
 
-            with self.lock:
-                # 1. Check queue first (can be fully handled under lock)
-                for i, item in enumerate(self.queue):
-                    if item["id"] == download_id:
-                        cancelled_info = self.queue.pop(i)
-                        cancelled_info["status"] = "cancelled"
-                        cancelled_info["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                        cancelled_info["error"] = "Cancelled from queue"
-                        self._add_to_history(cancelled_info) # _add_to_history is safe under lock
-                        print(f"[Manager] Cancelled queued download: {download_id}")
-                        return True # Cancelled from queue, we are done
-
-                # 2. Check active downloads - Find the instance *under lock*
-                if download_id in self.active_downloads:
-                    found_in_active = True
-                    active_info = self.active_downloads[download_id]
-                    downloader_to_cancel = active_info.get("downloader_instance")
-                    current_status = active_info.get("status")
-
-                    # If downloader instance doesn't exist yet (status 'starting')
-                    # or if already terminal, handle it here under lock
-                    if not downloader_to_cancel and current_status == "starting":
-                        print(f"[Manager] Marking 'starting' download as cancelled: {download_id}")
-                        # Mark as cancelled, it won't start or will be caught by wrapper
-                        active_info["status"] = "cancelled"
-                        if not active_info.get("end_time"):
-                            active_info["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                        active_info["error"] = "Cancelled before download thread fully started"
-                        # Don't assign downloader_to_cancel, let process_queue clean it up
-                        downloader_to_cancel = None # Explicitly clear
-                        # Indicate we handled it (or attempted to)
-                        return True # Exit, processed within lock
-                    elif current_status in ["completed", "failed", "cancelled"]:
-                        print(f"[Manager] Download {download_id} is already in terminal state '{current_status}'. Cannot cancel.")
-                        # Indicate we don't need to proceed further outside the lock
-                        downloader_to_cancel = None # Explicitly clear
-                        return False # Already finished/cancelled
-
-                    # If we found an instance and it's potentially running,
-                    # store it to call cancel *after* releasing the lock.
-                    print(f"[Manager] Found active downloader instance for {download_id}. Will signal outside lock.")
-
-                # Lock is released automatically here when exiting 'with'
-
-            # 3. Signal the downloader instance *outside* the lock
-            if downloader_to_cancel:
-                try:
-                    # Check if already cancelled (to avoid duplicate logs/actions) - This check is thread-safe
-                    if not downloader_to_cancel.is_cancelled:
-                        print(f"[Manager] Calling downloader.cancel() for {download_id}")
-                        downloader_to_cancel.cancel() # This can now call _update_download_status safely
-                        print(f"[Manager] Signalled downloader.cancel() for {download_id}")
-                        # Let the download thread's final status update handle moving to history
-                        return True # Signal sent
-                    else:
-                        print(f"[Manager] Active download {download_id} was already cancelling.")
-                        return True # Already in cancelling state is considered a success here
-                except Exception as e:
-                    print(f"[Manager] Error calling downloader.cancel() for {download_id}: {e}")
-                    # Update status to failed maybe? Or just log.
-                    # Use _update_download_status directly here as we are outside the lock
-                    self._update_download_status(download_id, status="failed", error=f"Error during cancel signaling: {e}")
-                    return False # Failed to signal
-
-            # 4. Handle cases where it wasn't in queue and wasn't running/starting
-            if not found_in_active:
-                print(f"[Manager] Could not cancel - ID not found in queue or active: {download_id}")
-                return False # Not found
-
-            # It was found in active but was already terminal or couldn't be signalled
-            # Return value determined above
-            return False # Should have returned True earlier if successful
-
-    def get_status(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Returns the current state of the queue, active downloads, and history."""
         with self.lock:
-            # Prepare active downloads list, excluding the downloader instance and potentially large metadata
-            active_list = []
-            for item_id, item_data in self.active_downloads.items():
-                # Create a copy, exclude internal objects and large API data
-                info_copy = {
-                    k: v for k, v in item_data.items()
-                    if k not in ['downloader_instance', 'civitai_model_info', 'civitai_version_info', 'civitai_primary_file']
-                }
-                 # Optionally add back only essential fields if needed by UI later (e.g., thumbnail)
-                # info_copy['thumbnail'] = item_data.get('thumbnail') # Already done by default
-                active_list.append(info_copy)
+            # 1. Check queue first (can be fully handled under lock)
+            for i, item in enumerate(self.queue):
+                if item["id"] == download_id:
+                    cancelled_info = self.queue.pop(i)
+                    cancelled_info["status"] = "cancelled"
+                    cancelled_info["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    cancelled_info["error"] = "Cancelled from queue"
+                    self._add_to_history(cancelled_info) # _add_to_history is safe under lock
+                    print(f"[Manager] Cancelled queued download: {download_id}")
+                    return True # Cancelled from queue, we are done
+
+            # 2. Check active downloads - Find the instance *under lock*
+            if download_id in self.active_downloads:
+                found_in_active = True
+                active_info = self.active_downloads[download_id]
+                downloader_to_cancel = active_info.get("downloader_instance")
+                current_status = active_info.get("status")
+
+                # If downloader instance doesn't exist yet (status 'starting')
+                # or if already terminal, handle it here under lock
+                if not downloader_to_cancel and current_status == "starting":
+                    print(f"[Manager] Marking 'starting' download as cancelled: {download_id}")
+                    # Mark as cancelled, it won't start or will be caught by wrapper
+                    active_info["status"] = "cancelled"
+                    if not active_info.get("end_time"):
+                        active_info["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    active_info["error"] = "Cancelled before download thread fully started"
+                    # Don't assign downloader_to_cancel, let process_queue clean it up
+                    downloader_to_cancel = None # Explicitly clear
+                    # Indicate we handled it (or attempted to)
+                    return True # Exit, processed within lock
+                elif current_status in ["completed", "failed", "cancelled"]:
+                    print(f"[Manager] Download {download_id} is already in terminal state '{current_status}'. Cannot cancel.")
+                    # Indicate we don't need to proceed further outside the lock
+                    downloader_to_cancel = None # Explicitly clear
+                    return False # Already finished/cancelled
+
+                # If we found an instance and it's potentially running,
+                # store it to call cancel *after* releasing the lock.
+                print(f"[Manager] Found active downloader instance for {download_id}. Will signal outside lock.")
+
+            # Lock is released automatically here when exiting 'with'
+
+        # 3. Signal the downloader instance *outside* the lock
+        if downloader_to_cancel:
+            try:
+                # Check if already cancelled (to avoid duplicate logs/actions) - This check is thread-safe
+                if not downloader_to_cancel.is_cancelled:
+                    print(f"[Manager] Calling downloader.cancel() for {download_id}")
+                    downloader_to_cancel.cancel() # This can now call _update_download_status safely
+                    print(f"[Manager] Signalled downloader.cancel() for {download_id}")
+                    # Let the download thread's final status update handle moving to history
+                    return True # Signal sent
+                else:
+                    print(f"[Manager] Active download {download_id} was already cancelling.")
+                    return True # Already in cancelling state is considered a success here
+            except Exception as e:
+                print(f"[Manager] Error calling downloader.cancel() for {download_id}: {e}")
+                # Update status to failed maybe? Or just log.
+                # Use _update_download_status directly here as we are outside the lock
+                self._update_download_status(download_id, status="failed", error=f"Error during cancel signaling: {e}")
+                return False # Failed to signal
+
+        # 4. Handle cases where it wasn't in queue and wasn't running/starting
+        if not found_in_active:
+            print(f"[Manager] Could not cancel - ID not found in queue or active: {download_id}")
+            return False # Not found
+
+        # It was found in active but was already terminal or couldn't be signalled
+        # Return value determined above
+        return False # Should have returned True earlier if successful
+
+    # --- get_status remains the same (still strips data for UI) ---
+    def get_status(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Returns the current state of the queue, active downloads, and history.
+           Strips sensitive/large data for UI efficiency."""
+        with self.lock:
+            # Fields to exclude when sending status to UI
+            exclude_fields_for_ui = [
+                'downloader_instance', 'civitai_model_info', 'civitai_version_info',
+                'api_key', # Don't send API key to frontend status
+                # Large potentially redundant fields:
+                'url', 'output_path', 'custom_filename', 'model_url_or_id',
+                # Keep 'thumbnail', 'filename', 'model_name', 'version_name' etc for display
+            ]
+
+            # Prepare active downloads list
+            active_list = [
+                {k: v for k, v in item_data.items() if k not in exclude_fields_for_ui}
+                for item_id, item_data in self.active_downloads.items()
+            ]
 
             # Prepare history list similarly
-            history_list = []
-            for item_data in self.history[:DOWNLOAD_HISTORY_LIMIT]:
-                info_copy = {
-                    k: v for k, v in item_data.items()
-                    if k not in ['downloader_instance', 'civitai_model_info', 'civitai_version_info', 'civitai_primary_file']
-                }
-                history_list.append(info_copy)
+            history_list = [
+                {k: v for k, v in item_data.items() if k not in exclude_fields_for_ui}
+                for item_data in self.history[:DOWNLOAD_HISTORY_LIMIT]
+            ]
 
-            # Return copies to prevent external modification
+            # Return copies
             return {
-                "queue": [item.copy() for item in self.queue],
+                "queue": [
+                    {k:v for k,v in item.items() if k not in exclude_fields_for_ui}
+                    for item in self.queue
+                ],
                 "active": active_list,
-                "history": history_list # Use the filtered list
+                "history": history_list,
             }
 
+    # --- CRITICAL CHANGE: _add_to_history now stores more data ---
     def _add_to_history(self, download_info: Dict[str, Any]):
-        """Adds a completed/failed/cancelled item to history (internal)."""
-        # Ensure sensitive or internal objects are removed
+        """Adds a completed/failed/cancelled item to history (internal).
+           Stores most original parameters needed for potential retry."""
+        # Create a copy, only exclude the actual downloader instance object
         info_copy = {
             k: v for k, v in download_info.items()
-             if k not in ['downloader_instance', 'civitai_model_info', 'civitai_version_info', 'civitai_primary_file', 'api_key'] # Also strip API key
+            if k not in ['downloader_instance']
         }
+        # Ensure end time and status are set
         if "end_time" not in info_copy or info_copy["end_time"] is None:
              info_copy["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-        # Provide default status if missing (shouldn't happen often)
         if "status" not in info_copy:
-             info_copy["status"] = "unknown"
+             info_copy["status"] = "unknown" # Should have been set before getting here
+
+        # --- Add/Update specific fields for history clarity ---
+        # Example: Store the final error message prominently if not already there
+        if info_copy["status"] != "completed" and not info_copy.get("error"):
+            info_copy["error"] = f"Finished with status '{info_copy['status']}' but no error recorded."
 
         self.history.insert(0, info_copy) # Prepend to keep newest first
-        # Trim history if it exceeds the limit
-        if len(self.history) > DOWNLOAD_HISTORY_LIMIT + 50: # Keep some buffer
+        # Trim history
+        if len(self.history) > DOWNLOAD_HISTORY_LIMIT + 50:
              self.history = self.history[:DOWNLOAD_HISTORY_LIMIT]
 
+    # --- _process_queue remains the same ---
     def _process_queue(self):
         """Internal thread function to manage downloads."""
+        # ... (no changes needed here) ...
         print("[Manager] Process queue thread started.")
         while self.running:
             processed_something = False
@@ -220,7 +254,7 @@ class DownloadManager:
                     # Check if still in active_downloads before popping (might have been removed by another thread edge case?)
                     if dl_id in self.active_downloads:
                         finished_info = self.active_downloads.pop(dl_id)
-                        self._add_to_history(finished_info)
+                        self._add_to_history(finished_info) # Will now store more data
                         print(f"[Manager] Moved '{finished_info.get('filename', dl_id)}' to history (Status: {finished_info['status']})")
                         processed_something = True
                     else:
@@ -265,11 +299,32 @@ class DownloadManager:
 
         print("[Manager] Process queue thread stopped.")
 
+    def clear_history(self) -> Dict[str, Any]:
+        """Clears the download history stored in the manager."""
+        cleared_count = 0
+        try:
+            with self.lock:
+                cleared_count = len(self.history)
+                if cleared_count > 0:
+                    self.history = []
+                    print(f"[Manager] Cleared {cleared_count} items from download history.")
+                else:
+                    print("[Manager] History clear request received, but history was already empty.")
+
+            # Note: This only clears the *in-memory* history.
+            # The frontend will need to clear its cookie separately if used.
+            return {"success": True, "message": f"Cleared {cleared_count} history items." if cleared_count > 0 else "History was already empty."}
+        except Exception as e:
+            print(f"[Manager] Error clearing history: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": f"Failed to clear history: {e}"}
+    # --- _update_download_status remains the same ---
     def _update_download_status(self, download_id: str, status: Optional[str] = None,
                                 progress: Optional[float] = None, speed: Optional[float] = None,
-                                error: Optional[str] = None, connection_type: Optional[str] = None): # Added connection_type
+                                error: Optional[str] = None, connection_type: Optional[str] = None):
         """Safely updates the status fields of an active download (thread-safe)."""
-        # Using lock here ensures atomicity when updating multiple fields from potentially different threads
+        # ... (no changes needed here) ...
         with self.lock:
             if download_id in self.active_downloads:
                 item = self.active_downloads[download_id]
@@ -301,98 +356,84 @@ class DownloadManager:
                     item["connection_type"] = connection_type
                     updated = True
 
-                # Optional: Log when an update actually happens
-                #print(f"DEBUG - Updated status for {download_id}: Status={status}, Progress={progress}, Speed={speed}, Conn={connection_type}, Error={error}")
-
-
+    # --- _save_civitai_metadata remains the same ---
     def _save_civitai_metadata(self, download_info: Dict[str, Any]):
         """Saves the .cminfo.json file."""
+        # ... (no changes needed here) ...
         output_path = download_info.get('output_path')
         model_info = download_info.get('civitai_model_info', {})
         version_info = download_info.get('civitai_version_info', {})
         primary_file = download_info.get('civitai_primary_file', {})
         download_id = download_info.get('id', 'unknown')
 
-        #if not output_path or not model_info or not version_info:
-         #   print(f"[Manager Meta {download_id}] Skipping metadata save: Missing output path or API info.")
-          #  return
-
         try:
-            # --- Construct metadata dictionary ---
             file_meta = primary_file.get('metadata', {}) or {} # Ensure dict
-
-            # Safely get creator info
             creator_info = model_info.get('creator', {}) or {}
-
-            # Safely get stats
             model_stats = model_info.get('stats', {}) or {}
             version_stats = version_info.get('stats', {}) or {}
 
             metadata = {
-                "ModelId": model_info.get('id', version_info['modelId']) ,
-                "ModelName": model_info.get('name', version_info['model']['name']),
-                "ModelDescription": model_info.get('description'), # Can be None/null
-                 "CreatorUsername": creator_info.get('username'), # Added creator username
-                "Nsfw": model_info.get('nsfw', version_info['model']['nsfw']),
-                "Poi": model_info.get('poi', version_info['model']['poi']), # Added PersonOfInterest flag
+                "ModelId": model_info.get('id', version_info.get('modelId')) , # Use .get() on version info too
+                "ModelName": model_info.get('name', version_info.get('model',{}).get('name')), # Nested .get()
+                "ModelDescription": model_info.get('description'),
+                "CreatorUsername": creator_info.get('username'),
+                "Nsfw": model_info.get('nsfw', version_info.get('model',{}).get('nsfw')),
+                "Poi": model_info.get('poi', version_info.get('model',{}).get('poi')),
                 "AllowNoCredit": model_info.get('allowNoCredit', True),
-                "AllowCommercialUse": model_info.get('allowCommercialUse', 'Unknown'),
+                "AllowCommercialUse": str(model_info.get('allowCommercialUse', 'Unknown')), # Ensure string
                 "AllowDerivatives": model_info.get('allowDerivatives', True),
                 "AllowDifferentLicense": model_info.get('allowDifferentLicense', True),
-                "Tags": model_info.get('tags', []), # Should be list
-                "ModelType": model_info.get('type'), # e.g., "LORA", "Checkpoint"
+                "Tags": model_info.get('tags', []),
+                "ModelType": model_info.get('type'),
                 "VersionId": version_info.get('id'),
                 "VersionName": version_info.get('name'),
-                "VersionDescription": version_info.get('description'), # Can be None/null
-                "BaseModel": version_info.get('baseModel'), # e.g., "SD 1.5", "Pony"
-                "BaseModelType": version_info.get('baseModelType'), # Added since API v2 - 'Standard','Pony' etc
-                "EarlyAccessDeadline": version_info.get('earlyAccessDeadline'), # Added
-                "VersionPublishedAt": version_info.get('publishedAt'), # Added publish date
-                 "VersionUpdatedAt": version_info.get('updatedAt'), # Added update date
-                 "VersionStatus": version_info.get('status'), # 'Published', 'Scheduled', 'Draft'
-                 "IsPrimaryFile": primary_file.get('primary', False), # Added primary file flag
-                 "PrimaryFileId": primary_file.get('id'), # Added primary file ID
-                 "PrimaryFileName": primary_file.get('name'), # Added primary file name
+                "VersionDescription": version_info.get('description'),
+                "BaseModel": version_info.get('baseModel'),
+                "BaseModelType": version_info.get('baseModelType'),
+                "EarlyAccessDeadline": version_info.get('earlyAccessDeadline'),
+                "VersionPublishedAt": version_info.get('publishedAt'),
+                "VersionUpdatedAt": version_info.get('updatedAt'),
+                "VersionStatus": version_info.get('status'),
+                "IsPrimaryFile": primary_file.get('primary', False),
+                "PrimaryFileId": primary_file.get('id'),
+                "PrimaryFileName": primary_file.get('name'),
                 "FileMetadata": {
                     "fp": file_meta.get('fp'),
                     "size": file_meta.get('size'),
                     "format": file_meta.get('format', 'Unknown')
                 },
                 "ImportedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "Hashes": primary_file.get('hashes', {}), # Already an object {"SHA256": ...}
-                "TrainedWords": version_info.get('trainedWords', []), # Should be list
-                "Stats": { # Combine stats, prioritizing potentially more accurate version stats if available
+                "Hashes": primary_file.get('hashes', {}),
+                "TrainedWords": version_info.get('trainedWords', []),
+                "Stats": {
                     "downloadCount": version_stats.get('downloadCount', model_stats.get('downloadCount', 0)),
                     "rating": version_stats.get('rating', model_stats.get('rating', 0)),
                     "ratingCount": version_stats.get('ratingCount', model_stats.get('ratingCount', 0)),
-                    "favoriteCount": version_stats.get('favoriteCount', model_stats.get('favoriteCount', 0)), # Model-level has favoriteCount
-                    "commentCount": version_stats.get('commentCount', model_stats.get('commentCount', 0)), # Model-level has commentCount
-                    "thumbsUpCount": version_stats.get('thumbsUpCount', 0), # Only seems to be on version stats
+                    "favoriteCount": version_stats.get('favoriteCount', model_stats.get('favoriteCount', 0)), # Correct source needed? Check API docs
+                    "commentCount": version_stats.get('commentCount', model_stats.get('commentCount', 0)), # Correct source needed? Check API docs
+                    "thumbsUpCount": version_stats.get('thumbsUpCount', 0),
                  },
-                 "DownloadUrlUsed": download_info.get('url'), # Log the actual download URL used
-                # Note: UserTitle seems specific to certain clients, not standard API. Thumbnail URL saved separately.
+                 "DownloadUrlUsed": download_info.get('url'),
             }
 
-            # --- Determine filename and path ---
             base, _ = os.path.splitext(output_path)
             meta_filename = base + METADATA_SUFFIX
             meta_path = os.path.join(os.path.dirname(output_path), meta_filename)
 
-            # --- Write JSON file ---
             print(f"[Manager Meta {download_id}] Saving metadata to: {meta_path}")
             with open(meta_path, 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
-
             print(f"[Manager Meta {download_id}] Metadata saved successfully.")
 
         except Exception as e:
+            import traceback
             print(f"[Manager Meta {download_id}] Error saving metadata file {meta_path}: {e}")
-            # Log traceback for debugging if needed
-            # import traceback
-            # traceback.print_exc()
+            # traceback.print_exc() # Uncomment for full trace
 
+    # --- _download_and_save_preview remains the same ---
     def _download_and_save_preview(self, download_info: Dict[str, Any]):
         """Downloads and saves the .preview.jpeg file."""
+        # ... (no changes needed here) ...
         output_path = download_info.get('output_path')
         thumbnail_url = download_info.get('thumbnail')
         api_key = download_info.get('api_key')
@@ -425,70 +466,45 @@ class DownloadManager:
              else:
                  return # Exit if no URL and no version info to search
 
-        # --- Determine filename and path ---
         base, _ = os.path.splitext(output_path)
         preview_filename = base + PREVIEW_SUFFIX
         preview_path = os.path.join(os.path.dirname(output_path), preview_filename)
 
         print(f"[Manager Preview {download_id}] Downloading thumbnail from {thumbnail_url} to {preview_path}")
-
-        response = None # Define outside try
+        response = None
         try:
             headers = {}
-            if api_key:
-                 headers["Authorization"] = f"Bearer {api_key}"
-
-            response = requests.get(
-                thumbnail_url,
-                stream=True,
-                headers=headers,
-                timeout=METADATA_DOWNLOAD_TIMEOUT, # Use specific timeout for metadata
-                allow_redirects=True
-            )
+            if api_key: headers["Authorization"] = f"Bearer {api_key}"
+            response = requests.get(thumbnail_url, stream=True, headers=headers, timeout=METADATA_DOWNLOAD_TIMEOUT, allow_redirects=True)
             response.raise_for_status()
-
-            # Optional: Check content type
             content_type = response.headers.get('Content-Type', '').lower()
             if not content_type.startswith('image/'):
                  print(f"[Manager Preview {download_id}] Warning: Thumbnail URL returned non-image content type '{content_type}'. Skipping save.")
                  return
-
             with open(preview_path, 'wb') as f:
-                 for chunk in response.iter_content(chunk_size=8192): # Read in 8KB chunks
-                     if chunk:
-                         f.write(chunk)
-
+                 for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
             print(f"[Manager Preview {download_id}] Thumbnail downloaded successfully.")
-
         except requests.exceptions.RequestException as e:
              error_msg = f"Error downloading thumbnail {thumbnail_url}: {e}"
-             # Check for specific status codes if response exists
-             if hasattr(e, 'response') and e.response is not None:
-                  status_code = e.response.status_code
-                  error_msg += f" (Status: {status_code})"
-                  if status_code == 404: error_msg += " - Not Found"
-                  elif status_code == 401: error_msg += " - Unauthorized?"
-                  elif status_code == 403: error_msg += " - Forbidden?"
+             if hasattr(e, 'response') and e.response is not None: error_msg += f" (Status: {e.response.status_code})"
              print(f"[Manager Preview {download_id}] {error_msg}")
-        except Exception as e:
-            print(f"[Manager Preview {download_id}] Error saving thumbnail {preview_path}: {e}")
+        except Exception as e: print(f"[Manager Preview {download_id}] Error saving thumbnail {preview_path}: {e}")
         finally:
-            if response:
-                response.close()
+            if response: response.close()
 
+    # --- _download_file_wrapper remains the same ---
     def _download_file_wrapper(self, download_info: Dict[str, Any]):
         """Wraps the download execution, handles status updates, exceptions, and metadata saving."""
+        # ... (no changes needed here) ...
         download_id = download_info["id"]
         filename = download_info.get('filename', download_id)
-        # Use lazy import inside thread to potentially avoid main thread import issues
         from .chunk_downloader import ChunkDownloader
-        downloader = None # Define outside try
+        downloader = None
         success = False
-        final_status = "failed" # Default to failed
+        final_status = "failed"
         error_msg = None
 
         try:
-            # --- Create downloader instance ---
             print(f"[Downloader Wrapper {download_id}] Preparing download for '{filename}'.")
             downloader = ChunkDownloader(
                 url=download_info["url"],
@@ -496,137 +512,255 @@ class DownloadManager:
                 num_connections=download_info.get("num_connections", DEFAULT_CONNECTIONS),
                 manager=self,
                 download_id=download_id,
-                api_key=download_info.get("api_key"), # Pass API key
-                known_size=download_info.get("known_size") # Pass known size
+                api_key=download_info.get("api_key"),
+                known_size=download_info.get("known_size")
             )
 
-            # --- Store instance reference ---
-            # Check if cancelled *before* storing instance and starting download
             with self.lock:
                   if download_id not in self.active_downloads or self.active_downloads[download_id]["status"] == "cancelled":
                        print(f"[Downloader Wrapper {download_id}] Download was cancelled before instance could be fully linked/started.")
-                       # Status should already be 'cancelled', just ensure history cleanup happens
                        self._update_download_status(download_id, status="cancelled", error="Cancelled before start")
-                       return # Exit thread
+                       return
 
                   self.active_downloads[download_id]["downloader_instance"] = downloader
 
-            # --- Start Download (Blocking Call) ---
-            # Update status to 'downloading'
             self._update_download_status(download_id, status="downloading")
             print(f"[Downloader Wrapper {download_id}] Starting download process for '{filename}'.")
-            success = downloader.download() # THE BLOCKING CALL
+            success = downloader.download() # Blocking call
 
-            # --- Post Download ---
-            error_msg = downloader.error # Get error message after download attempt
+            error_msg = downloader.error
 
             if success:
                 final_status = "completed"
                 print(f"[Downloader Wrapper {download_id}] Download completed successfully for '{filename}'.")
-                # --- Save Metadata and Preview on SUCCESS ---
                 try:
                     self._save_civitai_metadata(download_info)
                     self._download_and_save_preview(download_info)
                 except Exception as meta_err:
-                     # Log error but don't fail the overall download status
                      print(f"[Downloader Wrapper {download_id}] Error during post-download metadata/preview saving: {meta_err}")
-                     # Optionally append to the main error message?
-                     # error_msg = (error_msg + "; " if error_msg else "") + f"Metadata/Preview Save Error: {meta_err}"
 
             elif downloader.is_cancelled:
                 final_status = "cancelled"
-                error_msg = downloader.error or "Download cancelled" # Use specific error if available
+                error_msg = downloader.error or "Download cancelled"
                 print(f"[Downloader Wrapper {download_id}] Download cancelled for '{filename}'. Reason: {error_msg}")
             else:
-                # It failed, but wasn't explicitly cancelled
                 final_status = "failed"
-                error_msg = downloader.error or "Download failed with unknown error" # Ensure error msg exists
+                error_msg = downloader.error or "Download failed with unknown error"
                 print(f"[Downloader Wrapper {download_id}] Download failed for '{filename}'. Error: {error_msg}")
 
         except Exception as e:
-            # Catch unexpected errors during instance creation or the download call itself
             import traceback
             print(f"--- Critical Error in Download Wrapper {download_id} ('{filename}') ---")
             traceback.print_exc()
             print("--- End Error ---")
             final_status = "failed"
             error_msg = f"Unexpected wrapper error: {str(e)}"
-            # If downloader exists, try to signal cancel just in case it helps cleanup
             if downloader and not downloader.is_cancelled:
-                try:
-                    downloader.cancel()
-                except: pass # Ignore errors during cleanup cancel
+                try: downloader.cancel()
+                except: pass
 
         finally:
-            # --- Final Status Update ---
-            # The downloader itself now calls _update_download_status in its finally block,
-            # so this section *mainly* ensures the final state is recorded correctly,
-            # especially if errors occurred *outside* the downloader.download() call.
-
-            # Fetch the latest progress and connection type from the downloader if it exists
             final_progress_percent = 0
-            conn_type = download_info.get("connection_type", "N/A") # Default from info
+            conn_type = download_info.get("connection_type", "N/A")
 
             if downloader:
-                 conn_type = downloader.connection_type # Get final type from downloader
+                 conn_type = downloader.connection_type
                  if downloader.total_size and downloader.total_size > 0:
                       final_progress_percent = (downloader.downloaded / downloader.total_size * 100)
-                 # Ensure 100% on success, regardless of tiny calculation variations
-                 if final_status == "completed":
-                      final_progress_percent = 100.0
-                 final_progress_percent = min(100.0, max(0.0, final_progress_percent)) # Clamp 0-100
+                 if final_status == "completed": final_progress_percent = 100.0
+                 final_progress_percent = min(100.0, max(0.0, final_progress_percent))
 
             print(f"[Downloader Wrapper {download_id}] Finalizing status: {final_status}, Error: {error_msg}")
             self._update_download_status(
-                download_id,
-                status=final_status,
-                progress=final_progress_percent,
-                speed=0, # Final speed is 0
-                error=error_msg, # Use the determined error message
-                connection_type=conn_type # Pass final connection type from downloader
+                download_id, status=final_status, progress=final_progress_percent,
+                speed=0, error=error_msg, connection_type=conn_type
             )
-
-            # --- Trigger ComfyUI Refresh (Attempt) ---
-            # This still might not work reliably or be desired by all users.
-            # Consider making this a configurable option.
             if final_status == "completed":
                  print(f"[Manager] Download {download_id} completed ('{filename}'). Manual ComfyUI refresh may be needed for model list.")
-                 # Potential (often ineffective) ways to trigger refresh:
-                 # try:
-                 #     import nodes
-                 #     nodes.refresh_custom_node_list() # May not update model lists
-                 #     print("[Manager] Attempted ComfyUI node list refresh.")
-                 # except Exception as refresh_err:
-                 #     print(f"[Manager] Failed to trigger ComfyUI node refresh: {refresh_err}")
-                 # try:
-                 #      # Triggering API endpoints? Unreliable.
-                 #      # requests.post(f"{server.PromptServer.instance.address}/refresh") # Example, endpoint might not exist
-                 # except: pass
+
+    # --- NEW: Retry Download Method ---
+    def retry_download(self, original_download_id: str) -> Dict[str, Any]:
+        """Finds a failed/cancelled download in history and re-queues it."""
+        with self.lock:
+            # Find the original download info in history
+            original_info = next((item for item in self.history if item.get("id") == original_download_id), None)
+
+            if not original_info:
+                return {"success": False, "error": f"Original download ID '{original_download_id}' not found in history."}
+
+            original_status = original_info.get("status")
+            if original_status not in ["failed", "cancelled"]:
+                return {"success": False, "error": f"Cannot retry download with status '{original_status}'. Only 'failed' or 'cancelled' are retryable."}
+
+            # --- Prepare the new download info dictionary ---
+            # Make a deep copy to avoid modifying the history item directly
+            try:
+                retry_info = json.loads(json.dumps(original_info))
+            except Exception as e:
+                 return {"success": False, "error": f"Failed to copy original download data: {e}"}
+
+            # Remove fields specific to the *previous* attempt
+            retry_info.pop("id", None) # Will get a new ID
+            retry_info.pop("status", None)
+            retry_info.pop("progress", None)
+            retry_info.pop("speed", None)
+            retry_info.pop("error", None)
+            retry_info.pop("start_time", None)
+            retry_info.pop("end_time", None)
+            retry_info.pop("added_time", None)
+            retry_info.pop("connection_type", None)
+            retry_info.pop("downloader_instance", None) # Should have been removed by history add anyway
+
+            # --- Crucially: Set force_redownload to True for retry ---
+            # This ensures it overwrites the potentially corrupted/partial file from the previous attempt.
+            retry_info["force_redownload"] = True
+
+            # --- Validate required fields for queuing (redundant check, but safe) ---
+            required_for_retry = [
+                'url', 'output_path', 'num_connections', 'api_key', 'known_size',
+                'civitai_model_info', 'civitai_version_info', 'civitai_primary_file',
+                'thumbnail', 'filename', 'model_url_or_id', 'model_version_id', 'model_type',
+                'custom_filename', 'force_redownload'
+            ]
+            missing_keys = [key for key in required_for_retry if key not in retry_info or retry_info[key] is None and key != 'api_key' and key != 'custom_filename'] # Allow api_key/custom_filename to be None
+            if missing_keys:
+                return {"success": False, "error": f"Cannot retry: Original download data is missing required fields: {', '.join(missing_keys)}"}
+
+        # --- Add the prepared info to the queue (outside the lock for add_to_queue's own lock) ---
+        # Note: add_to_queue acquires its own lock internally
+        try:
+            new_download_id = self.add_to_queue(retry_info)
+            filename = retry_info.get('filename', 'Unknown file')
+            print(f"[Manager] Retrying download '{filename}' (Original ID: {original_download_id}). New ID: {new_download_id}")
+            return {"success": True, "message": f"Retry initiated for '{filename}'. New download queued.", "new_download_id": new_download_id}
+        except Exception as e:
+             print(f"[Manager] Error requeuing download for retry (Original ID: {original_download_id}): {e}")
+             return {"success": False, "error": f"Failed to queue retry: {e}"}
+
+    # --- NEW: Open Containing Folder Method ---
+    def open_containing_folder(self, download_id: str) -> Dict[str, Any]:
+        """Opens the directory containing the specified completed download file."""
+        file_path = None
+        with self.lock:
+            # Check history first (most likely location for completed items)
+            item_info = next((item for item in self.history if item.get("id") == download_id), None)
+            # Fallback to active (less likely, but possible if called very quickly after completion)
+            if not item_info and download_id in self.active_downloads:
+                 item_info = self.active_downloads.get(download_id)
+
+            if not item_info:
+                 return {"success": False, "error": "Download ID not found."}
+
+            if item_info.get("status") != "completed":
+                 return {"success": False, "error": f"Cannot open path for download with status '{item_info.get('status')}'. Must be 'completed'."}
+
+            file_path = item_info.get("output_path") # Get the full path to the file
+
+        # --- Perform file operations outside the lock ---
+        if not file_path:
+            return {"success": False, "error": "Output path not found for this download."}
+
+        # --- Security Check: Ensure the path is within expected ComfyUI directories ---
+        # (This is a basic check, might need refinement based on your setup)
+        is_safe_path = False
+        try:
+            # Get the absolute path
+            abs_file_path = os.path.abspath(file_path)
+            folder_path = os.path.dirname(abs_file_path)
+
+            # Option 1: Check against ComfyUI's known directories (preferred)
+            if COMFY_PATHS_AVAILABLE:
+                 # Check if the folder is within any known model type directory
+                 known_dirs = [os.path.abspath(get_directory_by_type(t)) for t in ["checkpoints", "loras", "vae", "embeddings", "hypernetworks", "controlnet", "upscale_models", "clip_vision", "gligen", "configs"]] # Add other types as needed
+                 # Also allow output and input directories
+                 if get_directory_by_type("output"): known_dirs.append(os.path.abspath(get_directory_by_type("output")))
+                 if get_directory_by_type("input"): known_dirs.append(os.path.abspath(get_directory_by_type("input")))
+
+                 for known_dir in known_dirs:
+                      if os.path.commonpath([known_dir, folder_path]) == known_dir:
+                           is_safe_path = True
+                           break
+            else:
+                 # Option 2: Fallback - Check if path is within the ComfyUI base directory
+                 comfy_base = os.path.abspath(base_path)
+                 if os.path.commonpath([comfy_base, folder_path]) == comfy_base:
+                      is_safe_path = True
+                      print(f"[Manager OpenPath Warning] ComfyUI paths unavailable. Using base path check for {folder_path}")
+
+            if not is_safe_path:
+                  print(f"[Manager OpenPath Denied] Path '{folder_path}' is outside known safe ComfyUI directories.")
+                  return {"success": False, "error": "Cannot open path: Directory is outside allowed locations."}
+
+            # --- Open the directory ---
+            if not os.path.exists(folder_path):
+                 return {"success": False, "error": f"Directory does not exist: {folder_path}"}
+            if not os.path.isdir(folder_path):
+                 return {"success": False, "error": f"Path is not a directory: {folder_path}"}
+
+            try:
+                 system = platform.system()
+                 print(f"[Manager OpenPath] Attempting to open folder '{folder_path}' on {system}...")
+                 if system == "Windows":
+                      # Use startfile for better handling of spaces etc.
+                      os.startfile(folder_path)
+                 elif system == "Darwin": # macOS
+                      subprocess.check_call(["open", folder_path])
+                 elif system == "Linux":
+                      # Use xdg-open, handle potential errors if command not found
+                      try:
+                            subprocess.check_call(["xdg-open", folder_path])
+                      except FileNotFoundError:
+                            # Fallback for headless systems or if xdg-open isn't installed
+                           print(f"[Manager OpenPath] 'xdg-open' not found. Cannot automatically open folder on this Linux system.")
+                           return {"success": False, "error": "'xdg-open' command not found. Cannot open folder."}
+                 else:
+                      print(f"[Manager OpenPath] Unsupported operating system: {system}. Cannot open folder.")
+                      return {"success": False, "error": f"Unsupported OS ({system}) for opening folder."}
+
+                 print(f"[Manager OpenPath] Successfully requested folder opening for '{folder_path}'.")
+                 return {"success": True, "message": f"Opened directory: {folder_path}"}
+
+            except Exception as e:
+                 print(f"[Manager OpenPath] Failed to open directory '{folder_path}': {e}")
+                 return {"success": False, "error": f"Failed to open directory: {e}"}
+
+        except Exception as path_err:
+            # Catch errors during path validation itself
+            print(f"[Manager OpenPath] Error during path validation/retrieval for {download_id}: {path_err}")
+            return {"success": False, "error": f"Error processing path: {path_err}"}
 
 # --- Global Instance ---
 manager = DownloadManager(max_concurrent=MAX_CONCURRENT_DOWNLOADS)
 
 # --- Graceful Shutdown ---
+# (shutdown_manager remains the same)
 def shutdown_manager():
+    # ... (no changes) ...
     print("[Manager] Shutdown requested.")
     if manager:
         manager.running = False
-        # Attempt to acquire lock for cancellation (with timeout)
-        if manager.lock.acquire(timeout=1.0):
+        acquired_lock = False
+        try: acquired_lock = manager.lock.acquire(timeout=1.0)
+        except RuntimeError: pass # Lock might not be initialised if init failed
+
+        if acquired_lock:
              try:
                  active_ids = list(manager.active_downloads.keys())
                  queue_ids = [item['id'] for item in manager.queue]
-             finally:
-                 manager.lock.release()
+                 print(f"[Manager] Requesting cancellation for {len(active_ids)} active and {len(queue_ids)} queued downloads on shutdown...")
+                 all_ids_to_cancel = active_ids + queue_ids
+                 manager.lock.release() # Release lock BEFORE calling cancel_download
 
-             print(f"[Manager] Requesting cancellation for {len(active_ids)} active and {len(queue_ids)} queued downloads on shutdown...")
-             all_ids_to_cancel = active_ids + queue_ids
-             for dl_id in all_ids_to_cancel:
-                  try:
-                      # Reuse cancel_download which handles both active and queued
-                      manager.cancel_download(dl_id)
-                  except Exception as e:
-                       print(f"Error cancelling {dl_id} during shutdown: {e}")
+                 for dl_id in all_ids_to_cancel:
+                      try:
+                          # Reuse cancel_download which handles both active and queued safely
+                          manager.cancel_download(dl_id)
+                      except Exception as e:
+                           print(f"Error cancelling {dl_id} during shutdown: {e}")
+             except Exception as e:
+                 print(f"[Manager] Error accessing lists during shutdown (after lock acquired): {e}")
+                 try: manager.lock.release() # Ensure release on error
+                 except RuntimeError: pass
              # Give threads/tasks a brief moment to react
              time.sleep(0.5)
         else:
@@ -642,6 +776,5 @@ def shutdown_manager():
             print(f"[Manager] Error joining manager thread during shutdown: {e}")
     print("[Manager] Shutdown complete.")
 
-# Register the shutdown function to be called when Python exits
 import atexit
 atexit.register(shutdown_manager)

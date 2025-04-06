@@ -226,6 +226,34 @@ class CivitaiDownloaderAPI {
     static async getModelTypes() {
         return await this._request('/civitai/model_types');
     }
+
+    static async retryDownload(downloadId) {
+        console.log(`[Civicomfy API] Requesting retry for download ID: ${downloadId}`);
+        return await this._request('/civitai/retry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ download_id: downloadId }),
+        });
+    }
+
+    static async openPath(downloadId) {
+        console.log(`[Civicomfy API] Requesting open path for download ID: ${downloadId}`);
+        return await this._request('/civitai/open_path', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ download_id: downloadId }),
+        });
+    }
+
+    static async clearHistory() {
+        console.log(`[Civicomfy API] Requesting clear history.`);
+        // No body needed for this request
+        return await this._request('/civitai/clear_history', {
+            method: 'POST', // POST is suitable for actions causing state change
+            headers: { 'Content-Type': 'application/json' },
+            // No body: body: JSON.stringify({}),
+        });
+    }
 }
 
 // --- UI Class ---
@@ -245,6 +273,7 @@ class CivitaiDownloaderUI {
         this.modelPreviewDebounceTimeout = null;
         this.downloadHistoryCookieName = 'civitaiDownloadHistory';
         this.maxHistoryItems = 50; // Limit history size
+        this.loadHistoryFromCookie();
         this.updateStatus();
 
         this.buildModalHTML(); // Creates this.modal element
@@ -307,34 +336,51 @@ class CivitaiDownloaderUI {
     }
 
     loadHistoryFromCookie() {
+        // ... (existing logic is fine - it loads if cookie exists)
         const cookieValue = getCookie(this.downloadHistoryCookieName);
         if (cookieValue) {
             try {
                 const history = JSON.parse(cookieValue);
                 if (Array.isArray(history)) {
-                    this.statusData.history = history; // Load into statusData
-                    console.log("[Civicomfy] Download history loaded from cookie.");
-                    return; // Exit if successful.
+                    // Make sure history items have IDs before assigning
+                    if (history.every(item => typeof item.id !== 'undefined')) {
+                         this.statusData.history = history;
+                         console.log("[Civicomfy] Download history loaded from cookie.");
+                    } else {
+                         console.warn("[Civicomfy] History from cookie missing IDs. Discarding.");
+                         this.clearLocalHistoryCookie(); // Clear corrupted cookie
+                         this.statusData.history = [];
+                    }
+                    return;
                 } else {
                     console.warn("[Civicomfy] Invalid history format from cookie.");
+                    this.clearLocalHistoryCookie(); // Clear invalid cookie
+                    this.statusData.history = [];
                 }
             } catch (error) {
                 console.error("[Civicomfy] Failed to parse download history cookie:", error);
-                // Optionally delete the corrupted cookie
-                 deleteCookie(this.downloadHistoryCookieName);
+                this.clearLocalHistoryCookie(); // Clear corrupted cookie
+                this.statusData.history = [];
             }
+        } else {
+             console.log("[Civicomfy] No download history cookie found, starting fresh.");
+             this.statusData.history = []; // Ensure history is empty if no cookie
         }
-        console.log("[Civicomfy] No download history cookie found or invalid, using default.");
-        // If cookie doesn't exist or fails to parse, use the existing logic
     }
 
     saveHistoryToCookie() {
+        // This should only be called when status updates *add* to the history,
+        // *not* when history is cleared. Clearing is handled separately.
         try {
-            // Limit and stringify the history
-            const limitedHistory = this.statusData.history.slice(0, this.maxHistoryItems);  // Only store recent items
-            const historyString = JSON.stringify(limitedHistory); // Stringify for the storage.
-            setCookie(this.downloadHistoryCookieName, historyString, 30); // Expires in 30 days
-            console.log("[Civicomfy] Download history saved to cookie.");
+            if (this.statusData.history.length > 0) { // Only save if there's history
+                const limitedHistory = this.statusData.history.slice(0, this.maxHistoryItems);
+                const historyString = JSON.stringify(limitedHistory);
+                setCookie(this.downloadHistoryCookieName, historyString, 30);
+                //console.log("[Civicomfy] Download history saved to cookie."); // Can be noisy
+            } else {
+                 // If history is empty, ensure the cookie is also cleared
+                 this.clearLocalHistoryCookie();
+            }
         } catch (error) {
             console.error("[Civicomfy] Failed to save download history to cookie:", error);
         }
@@ -491,7 +537,12 @@ class CivitaiDownloaderUI {
                                 </div>
                             </div>
                              <div class="civitai-status-section">
-                                <h3>Download History (Recent)</h3>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                     <h3>Download History (Recent)</h3>
+                                     <button id="civitai-clear-history-button" class="civitai-button danger small" title="Clear all history items">
+                                         <i class="fas fa-trash-alt"></i> Clear History
+                                     </button>
+                                </div>
                                 <div id="civitai-history-list" class="civitai-download-list">
                                     <p>No download history yet.</p>
                                 </div>
@@ -536,8 +587,22 @@ class CivitaiDownloaderUI {
                         </form>
                     </div>
                 </div>
+                <!-- Toast Notification Area -->
                 <div id="civitai-toast" class="civitai-toast"></div>
-            </div>
+
+                 <!-- ADDED Confirmation Modal (hidden by default) -->
+                 <div id="civitai-confirm-clear-modal" class="civitai-confirmation-modal">
+                     <div class="civitai-confirmation-modal-content">
+                         <h4>Confirm Clear History</h4>
+                         <p>Are you sure you want to clear the download history? This action cannot be undone.</p>
+                         <div class="civitai-confirmation-modal-actions">
+                              <button id="civitai-confirm-clear-no" class="civitai-button secondary">Cancel</button>
+                              <button id="civitai-confirm-clear-yes" class="civitai-button danger">Confirm Clear</button>
+                         </div>
+                     </div>
+                 </div>
+
+            </div> <!-- End civitai-downloader-modal-content -->
         `;
     }
 
@@ -576,6 +641,10 @@ class CivitaiDownloaderUI {
         this.historyListContainer = this.modal.querySelector('#civitai-history-list');
         this.statusIndicator = this.modal.querySelector('#civitai-status-indicator');
         this.activeCountSpan = this.modal.querySelector('#civitai-active-count');
+        this.clearHistoryButton = this.modal.querySelector('#civitai-clear-history-button');
+        this.confirmClearModal = this.modal.querySelector('#civitai-confirm-clear-modal');
+        this.confirmClearYesButton = this.modal.querySelector('#civitai-confirm-clear-yes');
+        this.confirmClearNoButton = this.modal.querySelector('#civitai-confirm-clear-no');
 
         // Settings Tab
         this.settingsForm = this.modal.querySelector('#civitai-settings-form');
@@ -675,26 +744,141 @@ class CivitaiDownloaderUI {
         // --- Event Delegation for dynamic buttons ---
 
         // Status tab Actions (Cancel/Retry)
-        this.statusContent.addEventListener('click', (event) => {
+        this.statusContent.addEventListener('click', async (event) => { // Make async
             const button = event.target.closest('button'); // Find nearest button clicked
             if (!button) return; // Exit if click wasn't on or inside a button
 
+            const downloadId = button.dataset.id;
+            if (!downloadId) return; // Exit if button has no download ID
+
+            // --- Handle Cancel ---
             if (button.classList.contains('civitai-cancel-button')) {
-                 const downloadId = button.dataset.id;
-                 if (downloadId) {
-                     this.handleCancelDownload(downloadId);
-                 }
+                 this.handleCancelDownload(downloadId); // Keep existing handler
             }
+            // --- Handle Retry ---
             else if (button.classList.contains('civitai-retry-button')) {
-                 // Requires storing necessary info in history item's element/data attrs
-                 console.warn("Retry functionality not implemented yet.");
-                 this.showToast("Retry is not yet implemented.", "info");
+                 console.log(`[Civicomfy UI] Retry button clicked for ID: ${downloadId}`);
+                 button.disabled = true;
+                 button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                 button.title = "Retrying...";
+                try {
+                    const result = await CivitaiDownloaderAPI.retryDownload(downloadId);
+                    if (result.success) {
+                        this.showToast(result.message || `Retry queued successfully!`, 'success');
+                        // Switch to status tab if autoOpen is enabled and we are not already there
+                        if(this.settings.autoOpenStatusTab && this.activeTab !== 'status') {
+                            this.switchTab('status');
+                        } else {
+                            this.updateStatus(); // Refresh status list
+                        }
+                    } else {
+                         // Use error.details from _request if available, fallback to result.error
+                         this.showToast(`Retry failed: ${result.details || result.error || 'Unknown error'}`, 'error', 5000);
+                         // Re-enable button on failure
+                         button.disabled = false;
+                         button.innerHTML = '<i class="fas fa-redo"></i>';
+                         button.title = "Retry Download";
+                    }
+                } catch (error) {
+                    const message = `Retry failed: ${error.details || error.message || 'Network error'}`;
+                    console.error("Retry Download UI Error:", error);
+                    this.showToast(message, 'error', 5000);
+                    // Re-enable button on caught error
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fas fa-redo"></i>';
+                    button.title = "Retry Download";
+                }
             }
+            // --- Handle Open Path ---
             else if (button.classList.contains('civitai-openpath-button')) {
-                // Requires storing necessary info in history item's element/data attrs
-                console.warn("Need to implement open path");
-                this.showToast("Need to implement open path", "info");
-           }
+                 console.log(`[Civicomfy UI] Open path button clicked for ID: ${downloadId}`);
+                 const originalIcon = button.innerHTML; // Store original icon
+                 button.disabled = true; // Disable temporarily during request
+                 button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                 button.title = "Opening...";
+                try {
+                    const result = await CivitaiDownloaderAPI.openPath(downloadId);
+                    if (result.success) {
+                        this.showToast(result.message || `Opened path successfully!`, 'success');
+                    } else {
+                        this.showToast(`Open path failed: ${result.details || result.error || 'Unknown error'}`, 'error', 5000);
+                    }
+                } catch (error) {
+                     const message = `Open path failed: ${error.details || error.message || 'Network error'}`;
+                    console.error("Open Path UI Error:", error);
+                    this.showToast(message, 'error', 5000);
+                } finally {
+                     // Always re-enable the button and restore icon
+                     button.disabled = false;
+                     button.innerHTML = originalIcon;
+                     button.title = "Open download path";
+                }
+            }
+
+            if (this.clearHistoryButton) {
+                this.clearHistoryButton.addEventListener('click', () => {
+                     console.log("[Civicomfy UI] Clear History button clicked.");
+                     // Show the confirmation modal
+                     if (this.confirmClearModal) {
+                         this.confirmClearModal.style.display = 'flex'; // Use flex for centering
+                     } else {
+                         console.error("Confirmation modal element not found!");
+                     }
+                });
+            } else {
+                console.error("Clear History button not found during setup!");
+            }
+    
+            // --- ADD Listeners for Confirmation Modal Buttons ---
+             if (this.confirmClearModal && this.confirmClearYesButton && this.confirmClearNoButton) {
+                 // YES Button (Confirm Clear)
+                 this.confirmClearYesButton.addEventListener('click', async () => {
+                     console.log("[Civicomfy UI] Confirm Clear clicked.");
+                     this.confirmClearYesButton.disabled = true;
+                     this.confirmClearNoButton.disabled = true;
+                     this.confirmClearYesButton.textContent = 'Clearing...';
+    
+                     try {
+                         const result = await CivitaiDownloaderAPI.clearHistory();
+                         if (result.success) {
+                             this.showToast(result.message || 'History cleared successfully!', 'success');
+                             // --- CRUCIAL: Clear local state and cookie ---
+                             this.statusData.history = []; // Clear in-memory state
+                             this.clearLocalHistoryCookie(); // Clear the persistent cookie
+                             // Refresh UI
+                             this.updateStatus(); // This will now render the empty history
+                             this.confirmClearModal.style.display = 'none'; // Hide modal
+                         } else {
+                             this.showToast(`Clear history failed: ${result.details || result.error || 'Unknown error'}`, 'error', 5000);
+                         }
+                     } catch (error) {
+                         const message = `Clear history failed: ${error.details || error.message || 'Network error'}`;
+                         console.error("Clear History UI Error:", error);
+                         this.showToast(message, 'error', 5000);
+                     } finally {
+                         // Always re-enable buttons and reset text
+                         this.confirmClearYesButton.disabled = false;
+                         this.confirmClearNoButton.disabled = false;
+                         this.confirmClearYesButton.textContent = 'Confirm Clear';
+                     }
+                 });
+    
+                 // NO Button (Cancel)
+                 this.confirmClearNoButton.addEventListener('click', () => {
+                     console.log("[Civicomfy UI] Cancel Clear clicked.");
+                     this.confirmClearModal.style.display = 'none'; // Hide modal
+                 });
+    
+                  // Optional: Close modal if clicking outside the content
+                 this.confirmClearModal.addEventListener('click', (event) => {
+                     if (event.target === this.confirmClearModal) { // Check if click is on the modal backdrop itself
+                          this.confirmClearModal.style.display = 'none';
+                     }
+                 });
+    
+             } else {
+                  console.error("Confirmation modal buttons not found during setup!");
+             }
         });
 
          // Search result Actions (Download Button)
@@ -1206,95 +1390,73 @@ class CivitaiDownloaderUI {
     }
 
     async updateStatus() {
-        // Only fetch if the modal is open... (keep existing check)
         if (!this.modal || !this.modal.classList.contains('open')) {
+             // If modal is closed, and we were polling, potentially save history to cookie ONE LAST TIME here?
+             // Only if there were changes detected maybe? Could be complex.
+             // For now, just save when status changes *while open*.
             return;
         }
+        let dataChanged = false; // Track changes
         try {
             const newStatusData = await CivitaiDownloaderAPI.getStatus();
 
-            // Basic check if data structure is valid
             if (newStatusData && Array.isArray(newStatusData.active) && Array.isArray(newStatusData.queue) && Array.isArray(newStatusData.history)) {
 
-                // --- MERGE LOGIC ---
-                // 1. Keep track of IDs in the current history (from cookie/previous state)
-                const existingHistoryIds = new Set(this.statusData.history.map(item => item.id));
-
-                // 2. Filter the history from the API to include only items *not already* in our existing history
-                const newHistoryItemsFromAPI = newStatusData.history.filter(item => !existingHistoryIds.has(item.id));
-
-                // 3. Combine the new unique items from the API with the existing history
-                //    Prepend new items so most recent finished appear first
+                // --- MERGE LOGIC (Keep existing merge logic) ---
+                const existingHistoryIds = new Set(this.statusData.history.map(item => item.id).filter(Boolean)); // Ensure IDs exist
+                const newHistoryItemsFromAPI = newStatusData.history.filter(item => item && item.id && !existingHistoryIds.has(item.id));
                 let combinedHistory = [...newHistoryItemsFromAPI, ...this.statusData.history];
-
-                // 4. (Optional but recommended) Sort combined history - e.g., by end_time descending if available
                 combinedHistory.sort((a, b) => {
-                    const timeA = a.end_time || a.added_time || 0; // Use endTime, fallback to addedTime
+                    const timeA = a.end_time || a.added_time || 0;
                     const timeB = b.end_time || b.added_time || 0;
-                    // Handle potential null/undefined times robustly
-                     if (timeA && !timeB) return -1; // A has time, B doesn't -> A comes first
-                     if (!timeA && timeB) return 1;  // B has time, A doesn't -> B comes first
-                     if (!timeA && !timeB) return 0; // Neither has time, keep original relative order (or sort by ID?)
-                    // Both have time, sort descending (most recent first)
+                    if (timeA && !timeB) return -1; if (!timeA && timeB) return 1; if (!timeA && !timeB) return 0;
                     return new Date(timeB).getTime() - new Date(timeA).getTime();
                 });
-
-                // 5. Limit the combined history
                 const limitedHistory = combinedHistory.slice(0, this.maxHistoryItems);
 
                 // --- CHECK FOR CHANGES ---
-                // Compare relevant parts: active, queue, and the *potentially updated* history
-                const oldStateString = JSON.stringify({
-                    active: this.statusData.active,
-                    queue: this.statusData.queue,
-                    history: this.statusData.history // Use history *before* updating it below
-                });
-                 const newStateString = JSON.stringify({
-                    active: newStatusData.active,
-                    queue: newStatusData.queue,
-                    history: limitedHistory // Use the *new* limited history for comparison
-                });
-                const changed = oldStateString !== newStateString;
+                 const oldStateString = JSON.stringify({ a: this.statusData.active, q: this.statusData.queue, h: this.statusData.history });
+                 const newStateString = JSON.stringify({ a: newStatusData.active, q: newStatusData.queue, h: limitedHistory });
+                 dataChanged = oldStateString !== newStateString;
 
                 // --- UPDATE STATUS DATA ---
-                // Update active and queue directly from the API
                 this.statusData.active = newStatusData.active;
                 this.statusData.queue = newStatusData.queue;
-                // Update history with the combined, sorted, and limited list
-                this.statusData.history = limitedHistory;
+                this.statusData.history = limitedHistory; // Update with merged/limited history
 
                 // --- UPDATE UI ---
-                // Update the status indicator bubble
                 const activeCount = this.statusData.active.length + this.statusData.queue.length;
                 this.activeCountSpan.textContent = activeCount;
                 this.statusIndicator.style.display = activeCount > 0 ? 'inline' : 'none';
 
-                // Only re-render lists if the status tab is active AND data changed
-                if (this.activeTab === 'status' && changed) {
-                    // console.log("[Civicomfy] Status data changed, re-rendering lists.");
+                if (this.activeTab === 'status' && dataChanged) {
                     this.renderDownloadList(this.statusData.active, this.activeListContainer, 'No active downloads.');
                     this.renderDownloadList(this.statusData.queue, this.queuedListContainer, 'Download queue is empty.');
                     this.renderDownloadList(this.statusData.history, this.historyListContainer, 'No download history yet.');
-                } else if (this.activeTab === 'status' && !changed) {
-                    // console.log("[Civicomfy] Status data unchanged, skipping re-render.");
                 }
+
+                 // --- Save to Cookie if data changed ---
+                 if (dataChanged) {
+                    this.saveHistoryToCookie();
+                 }
 
             } else {
                 console.warn("[Civicomfy] Received invalid status data structure:", newStatusData);
-                // Handle error display as before...
+                 if (this.activeTab === 'status') { this.showStatusError("Invalid data received from server."); }
             }
-
         } catch (error) {
             console.error("[Civicomfy] Failed to update status:", error);
-            // Handle error display as before...
-             if (this.activeTab === 'status') {
-                 const errorHtml = `<p style="color: var(--error-text, #ff6b6b);">Failed to load status: ${error.details || error.message}</p>`;
-                 if (!this.activeListContainer.innerHTML.includes("Failed to load status")) {
-                     this.activeListContainer.innerHTML = errorHtml;
-                     this.queuedListContainer.innerHTML = '';
-                     this.historyListContainer.innerHTML = '';
-                 }
-             }
+             if (this.activeTab === 'status') { this.showStatusError(`Failed to load status: ${error.details || error.message}`); }
+        }
+    }
+
+    // Helper to show errors consistently in status tab
+    showStatusError(message) {
+        const errorHtml = `<p style="color: var(--error-text, #ff6b6b);">${message}</p>`;
+         if (this.activeListContainer && !this.activeListContainer.innerHTML.includes("Failed to load status")) {
+            this.activeListContainer.innerHTML = errorHtml;
+            if(this.queuedListContainer) this.queuedListContainer.innerHTML = '';
+            if(this.historyListContainer) this.historyListContainer.innerHTML = '';
         }
     }
 
@@ -1341,68 +1503,55 @@ class CivitaiDownloaderUI {
     }
 
     renderDownloadList(items, container, emptyMessage) {
-        if (!items || items.length === 0) {
+
+         if (!items || items.length === 0) {
             container.innerHTML = `<p>${emptyMessage}</p>`;
             return;
         }
-
-        // Use document fragment for potentially better performance with many items
         const fragment = document.createDocumentFragment();
 
         items.forEach(item => {
-             // Safely access properties with defaults
              const id = item.id || 'unknown-id';
              const progress = item.progress !== undefined ? Math.max(0, Math.min(100, item.progress)) : 0;
              const speed = item.speed !== undefined ? Math.max(0, item.speed) : 0;
              const status = item.status || 'unknown';
-             const size = item.known_size !== undefined && item.known_size !== null ? item.known_size : (item.file_size || 0); // Prioritize known_size, fallback to file_size
+             const size = item.known_size !== undefined && item.known_size !== null ? item.known_size : (item.file_size || 0);
              const downloadedBytes = size > 0 ? size * (progress / 100) : 0;
              const errorMsg = item.error || null;
-             const modelName = item.model_name || item.model.name;
+             const modelName = item.model_name || item.model?.name || 'Unknown Model'; // Safer access
              const versionName = item.version_name || 'Unknown Version';
              const filename = item.filename || 'N/A';
              const addedTime = item.added_time || null;
              const startTime = item.start_time || null;
              const endTime = item.end_time || null;
-             const thumbnail = item.thumbnail || PLACEHOLDER_IMAGE_URL; // Use stored placeholder
-             // ---> Get Connection Type <---
+             const thumbnail = item.thumbnail || PLACEHOLDER_IMAGE_URL;
              const connectionType = item.connection_type || "N/A";
 
              let progressBarClass = '';
-             let statusText = status.charAt(0).toUpperCase() + status.slice(1); // Capitalize first letter
+             let statusText = status.charAt(0).toUpperCase() + status.slice(1);
 
              switch(status) {
                  case 'completed': progressBarClass = 'completed'; break;
-                 case 'failed': progressBarClass = 'failed'; break; // Error message shown separately
-                 case 'cancelled': progressBarClass = 'cancelled'; break;
-                 case 'downloading': break; // Default color
-                 case 'queued': break; // No progress bar for queued
-                 case 'starting': break; // Use default progress bar at 0% or minimal width
+                 case 'failed': progressBarClass = 'failed'; statusText = `Failed`; break; // Shorten status text
+                 case 'cancelled': progressBarClass = 'cancelled'; statusText = `Cancelled`; break; // Shorten status text
+                 case 'downloading': break;
+                 case 'queued': break;
+                 case 'starting': break;
              }
 
-             // Create list item element
              const listItem = document.createElement('div');
              listItem.className = 'civitai-download-item';
              listItem.dataset.id = id;
 
-             // Construct the onerror attribute correctly for the placeholder
              const onErrorScript = `this.onerror=null; this.src='${PLACEHOLDER_IMAGE_URL}'; this.style.backgroundColor='#444';`;
-
-             // Tooltips for times
              const addedTooltip = addedTime ? `data-tooltip="Added: ${new Date(addedTime).toLocaleString()}"` : '';
              const startedTooltip = startTime ? `data-tooltip="Started: ${new Date(startTime).toLocaleString()}"`: '';
              const endedTooltip = endTime ? `data-tooltip="Ended: ${new Date(endTime).toLocaleString()}"`: '';
              const durationTooltip = startTime && endTime ? `data-tooltip="Duration: ${this.formatDuration(startTime, endTime)}"`: '';
-
-             // Tooltip for filename
              const filenameTooltip = filename !== 'N/A' ? `title="Filename: ${filename}"` : '';
-             // Tooltip for error
-             const errorTooltip = errorMsg ? `title="Error Details: ${errorMsg}"` : '';
-
-             // ---> Display Connection Type <---
-             const connectionInfoHtml = connectionType !== "N/A"
-                ? `<span style="font-size: 0.85em; color: #aaa; margin-left: 10px;">(Conn: ${connectionType})</span>`
-                : '';
+              // Limit error tooltip length for performance/display
+             const errorTooltip = errorMsg ? `title="Error Details: ${String(errorMsg).substring(0, 200)}${String(errorMsg).length > 200 ? '...' : ''}"` : '';
+             const connectionInfoHtml = connectionType !== "N/A" ? `<span style="font-size: 0.85em; color: #aaa; margin-left: 10px;">(Conn: ${connectionType})</span>` : '';
 
              let innerHTML = `
                 <img src="${thumbnail}" alt="thumbnail" class="civitai-download-thumbnail" loading="lazy" onerror="${onErrorScript}">
@@ -1411,60 +1560,57 @@ class CivitaiDownloaderUI {
                     <p>Ver: ${versionName}</p>
                     <p class="filename" ${filenameTooltip}>${filename}</p>
                     ${size > 0 ? `<p>Size: ${this.formatBytes(size)}</p>` : ''}
-                    ${errorMsg ? `<p class="error-message" ${errorTooltip}>Error: ${errorMsg.substring(0, 100)}${errorMsg.length > 100 ? '...' : ''}</p>` : ''}
-            `;
+                    ${errorMsg ? `<p class="error-message" ${errorTooltip}><i class="fas fa-exclamation-triangle"></i> ${String(errorMsg).substring(0, 100)}${String(errorMsg).length > 100 ? '...' : ''}</p>` : ''}
+             `; // Removed 'Error:' prefix from text, added icon
 
             // Progress Bar and Speed Section
              if (status === 'downloading' || status === 'starting' || status === 'completed') {
-                  // Move status text here to combine with conn type
-                  const statusLine = `<div ${durationTooltip} ${endedTooltip}>Status: ${statusText} ${connectionInfoHtml}</div>`;
-
+                 const statusLine = `<div ${durationTooltip} ${endedTooltip}>Status: ${statusText} ${connectionInfoHtml}</div>`;
                  innerHTML += `
                     <div class="civitai-progress-container" title="${statusText} - ${progress.toFixed(1)}%">
                         <div class="civitai-progress-bar ${progressBarClass}" style="width: ${progress}%;">
-                            ${progress > 5 ? progress.toFixed(0)+'%' : ''}
+                            ${progress > 15 ? progress.toFixed(0)+'%' : ''}
                         </div>
                     </div>
                  `;
                  const speedText = (status === 'downloading' && speed > 0) ? this.formatSpeed(speed) : '';
                  const progressText = (status === 'downloading' && size > 0) ? `(${this.formatBytes(downloadedBytes)} / ${this.formatBytes(size)})` : '';
-                 const completedText = status === 'completed' ? 'Completed' : '';
-
-                 // Combine speed/progress/status into fewer lines
-                 innerHTML += `<div class="civitai-speed-indicator">${speedText} ${progressText} ${completedText}</div>`;
+                 const completedText = status === 'completed' ? '' : ''; // Already shown in status line
+                 const speedProgLine = `<div class="civitai-speed-indicator">${speedText} ${progressText} ${completedText}</div>`;
+                 // Only show speed/progress line if actually downloading or useful
+                  if (status === 'downloading') { innerHTML += speedProgLine; }
                  innerHTML += statusLine;
-
              } else if (status === 'failed' || status === 'cancelled' || status === 'queued') {
-                  innerHTML += `<div ${durationTooltip} ${endedTooltip} ${addedTooltip}>Status: ${statusText} ${connectionInfoHtml}</div>`;
-             } else { // Catch 'unknown' or others
-                 innerHTML += `<div>Status: ${statusText} ${connectionInfoHtml}</div>`;
+                 innerHTML += `<div class="status-line-simple" ${durationTooltip} ${endedTooltip} ${addedTooltip}>Status: ${statusText} ${connectionInfoHtml}</div>`;
+             } else {
+                 innerHTML += `<div class="status-line-simple">Status: ${statusText} ${connectionInfoHtml}</div>`;
              }
-
             innerHTML += `</div>`; // Close civitai-download-info
 
-             // Actions Section
+             // --- Actions Section (UPDATED) ---
             innerHTML += `<div class="civitai-download-actions">`;
             if (status === 'queued' || status === 'downloading' || status === 'starting') {
                 innerHTML += `<button class="civitai-button danger small civitai-cancel-button" data-id="${id}" title="Cancel Download"><i class="fas fa-times"></i></button>`;
             }
+            // --- Enable Retry Button ---
             if (status === 'failed' || status === 'cancelled') {
-                innerHTML += `<button class="civitai-button small civitai-retry-button" data-id="${id}" disabled title="Retry not implemented"><i class="fas fa-redo"></i></button>`;
+                // REMOVED disabled attribute and updated title
+                innerHTML += `<button class="civitai-button small civitai-retry-button" data-id="${id}" title="Retry Download"><i class="fas fa-redo"></i></button>`;
             }
+            // --- Add Open Path Button ---
             if (status === 'completed') {
-                innerHTML += `<button class="civitai-button small civitai-openpath-button" data-id="${id}" title="Open download path"><i class="fas fa-folder-open"></i></button>`;
+                // ADDED this button
+                innerHTML += `<button class="civitai-button small civitai-openpath-button" data-id="${id}" title="Open Containing Folder"><i class="fas fa-folder-open"></i></button>`;
             }
             innerHTML += `</div>`; // Close civitai-download-actions
 
             listItem.innerHTML = innerHTML;
             fragment.appendChild(listItem);
-        });// End forEach item
+        });
 
-        // Replace container content efficiently
-        container.innerHTML = ''; // Clear existing content
+        container.innerHTML = '';
         container.appendChild(fragment);
-
-         this.ensureFontAwesome(); // Ensure icons are available
-    
+        this.ensureFontAwesome(); // Ensure icons are available after render
     }
 
     // Helper function to format duration
@@ -1491,19 +1637,15 @@ class CivitaiDownloaderUI {
 
      
 
-    // Helper function to ensure FontAwesome is loaded (keep your existing implementation)
-    ensureFontAwesome() {
-        if (!document.querySelector('link[href*="fontawesome"]')) {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'; // Or your preferred FA source
-            document.head.appendChild(link);
+    clearLocalHistoryCookie() {
+        if (this.downloadHistoryCookieName) {
+            deleteCookie(this.downloadHistoryCookieName);
         }
     }
 
   
 
-    // Helper function to ensure FontAwesome is loaded (keep your existing implementation)
+    // Helper function to ensure FontAwesome is loaded
     ensureFontAwesome() {
         if (!document.querySelector('link[href*="fontawesome"]')) {
             const link = document.createElement('link');
