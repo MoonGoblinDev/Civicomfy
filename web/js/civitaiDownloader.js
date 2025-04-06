@@ -190,6 +190,14 @@ class CivitaiDownloaderAPI {
         });
     }
 
+    static async getModelDetails(params) {
+        return await this._request('/civitai/get_model_details', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params),
+        });
+    }
+
     static async getStatus() {
         return await this._request('/civitai/status');
     }
@@ -234,6 +242,10 @@ class CivitaiDownloaderUI {
         this.searchPagination = { currentPage: 1, totalPages: 1, limit: 20 }; // Consistent limit
         this.settings = this.getDefaultSettings(); // Initialize with defaults first
         this.toastTimeout = null;
+        this.modelPreviewDebounceTimeout = null;
+        this.downloadHistoryCookieName = 'civitaiDownloadHistory';
+        this.maxHistoryItems = 50; // Limit history size
+        this.updateStatus();
 
         this.buildModalHTML(); // Creates this.modal element
         this.cacheDOMElements();
@@ -291,6 +303,40 @@ class CivitaiDownloaderUI {
         } catch (e) {
             console.error("Failed to save settings to cookie:", e);
             this.showToast('Error saving settings', 'error');
+        }
+    }
+
+    loadHistoryFromCookie() {
+        const cookieValue = getCookie(this.downloadHistoryCookieName);
+        if (cookieValue) {
+            try {
+                const history = JSON.parse(cookieValue);
+                if (Array.isArray(history)) {
+                    this.statusData.history = history; // Load into statusData
+                    console.log("[Civicomfy] Download history loaded from cookie.");
+                    return; // Exit if successful.
+                } else {
+                    console.warn("[Civicomfy] Invalid history format from cookie.");
+                }
+            } catch (error) {
+                console.error("[Civicomfy] Failed to parse download history cookie:", error);
+                // Optionally delete the corrupted cookie
+                 deleteCookie(this.downloadHistoryCookieName);
+            }
+        }
+        console.log("[Civicomfy] No download history cookie found or invalid, using default.");
+        // If cookie doesn't exist or fails to parse, use the existing logic
+    }
+
+    saveHistoryToCookie() {
+        try {
+            // Limit and stringify the history
+            const limitedHistory = this.statusData.history.slice(0, this.maxHistoryItems);  // Only store recent items
+            const historyString = JSON.stringify(limitedHistory); // Stringify for the storage.
+            setCookie(this.downloadHistoryCookieName, historyString, 30); // Expires in 30 days
+            console.log("[Civicomfy] Download history saved to cookie.");
+        } catch (error) {
+            console.error("[Civicomfy] Failed to save download history to cookie:", error);
         }
     }
 
@@ -389,6 +435,11 @@ class CivitaiDownloaderUI {
                                  <input type="checkbox" id="civitai-force-redownload" class="civitai-checkbox">
                                 <label for="civitai-force-redownload">Force Re-download (if exists)</label>
                             </div>
+
+                            <div id="civitai-download-preview-area" class="civitai-download-preview-area" style="margin-top: 25px; padding-top: 15px; border-top: 1px solid var(--border-color, #444);">
+                            <!-- Preview content will be injected here -->
+                            </div>
+
                             <button type="submit" id="civitai-download-submit" class="civitai-button primary">Start Download</button>
                         </form>
                     </div>
@@ -498,6 +549,7 @@ class CivitaiDownloaderUI {
 
         // Download Tab
         this.downloadForm = this.modal.querySelector('#civitai-download-form');
+        this.downloadPreviewArea = this.modal.querySelector('#civitai-download-preview-area');
         this.modelUrlInput = this.modal.querySelector('#civitai-model-url');
         this.modelVersionIdInput = this.modal.querySelector('#civitai-model-version-id');
         this.downloadModelTypeSelect = this.modal.querySelector('#civitai-model-type');
@@ -554,6 +606,13 @@ class CivitaiDownloaderUI {
         });
     }
 
+    debounceFetchDownloadPreview(delay = 500) { // Default 500ms delay
+        clearTimeout(this.modelPreviewDebounceTimeout);
+        this.modelPreviewDebounceTimeout = setTimeout(() => {
+            this.fetchAndDisplayDownloadPreview();
+        }, delay);
+    }
+
     setupEventListeners() {
         // Modal close
         this.closeButton.addEventListener('click', () => this.closeModal());
@@ -576,6 +635,18 @@ class CivitaiDownloaderUI {
             event.preventDefault();
             this.handleDownloadSubmit();
         });
+
+        this.modelUrlInput.addEventListener('input', () => {
+            this.debounceFetchDownloadPreview();
+        });
+        this.modelUrlInput.addEventListener('paste', () => {
+            // Trigger immediately on paste for better UX
+            this.debounceFetchDownloadPreview(0); // 0ms delay
+        });
+
+        this.modelVersionIdInput.addEventListener('blur', () => {
+            this.fetchAndDisplayDownloadPreview(); // Fetch immediately on blur
+       });
 
         // Search form submission
         this.searchForm.addEventListener('submit', (event) => {
@@ -613,11 +684,17 @@ class CivitaiDownloaderUI {
                  if (downloadId) {
                      this.handleCancelDownload(downloadId);
                  }
-            } else if (button.classList.contains('civitai-retry-button')) {
+            }
+            else if (button.classList.contains('civitai-retry-button')) {
                  // Requires storing necessary info in history item's element/data attrs
                  console.warn("Retry functionality not implemented yet.");
                  this.showToast("Retry is not yet implemented.", "info");
             }
+            else if (button.classList.contains('civitai-openpath-button')) {
+                // Requires storing necessary info in history item's element/data attrs
+                console.warn("Need to implement open path");
+                this.showToast("Need to implement open path", "info");
+           }
         });
 
          // Search result Actions (Download Button)
@@ -665,6 +742,7 @@ class CivitaiDownloaderUI {
                 }
 
                 this.showToast(`Filled download form for Model ID ${modelId}. Review save location.`, 'info', 4000);
+                this.fetchAndDisplayDownloadPreview();
                 return; // Important: Stop further processing if it was a download button
 
             } else if (viewAllButton) { // **** ADDED: Handler for 'Show All Versions' ****
@@ -744,6 +822,7 @@ class CivitaiDownloaderUI {
 
         // Specific actions when switching TO a tab
         if (tabId === 'status') {
+            this.loadHistoryFromCookie();
             this.updateStatus(); // Refresh status immediately when switching to tab
         } else if (tabId === 'settings') {
              // Re-apply settings from 'this.settings' to ensure UI matches state
@@ -823,6 +902,116 @@ class CivitaiDownloaderUI {
         }
     }
 
+    async fetchAndDisplayDownloadPreview() {
+        const modelUrlOrId = this.modelUrlInput.value.trim();
+        const versionId = this.modelVersionIdInput.value.trim(); // Get version ID too
+
+        if (!modelUrlOrId) {
+            this.downloadPreviewArea.innerHTML = ''; // Clear preview if input is empty
+            return;
+        }
+
+        // Show loading indicator
+        this.downloadPreviewArea.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Loading model details...</p>';
+        this.ensureFontAwesome(); // Make sure spinner icon works
+
+        const params = {
+            model_url_or_id: modelUrlOrId,
+            model_version_id: versionId ? parseInt(versionId, 10) : null,
+            api_key: this.settings.apiKey // Send API key from settings
+        };
+
+        try {
+            const result = await CivitaiDownloaderAPI.getModelDetails(params);
+
+            if (result && result.success) {
+                 this.renderDownloadPreview(result); // Pass successful data to renderer
+            } else {
+                 // Handle explicit failure from backend (e.g., {success: false, error: ...})
+                 const message = `Failed to get details: ${result.details || result.error || 'Unknown backend error'}`;
+                 this.downloadPreviewArea.innerHTML = `<p style="color: var(--error-text, #ff6b6b);">${message}</p>`;
+            }
+
+        } catch (error) {
+            // Handle exceptions from the API call itself (network, 404, etc.)
+             const message = `Error fetching details: ${error.details || error.message || 'Unknown error'}`;
+             console.error("Download Preview Fetch Error:", error);
+             this.downloadPreviewArea.innerHTML = `<p style="color: var(--error-text, #ff6b6b);">${message}</p>`;
+             // Do not show toast here, error is shown in the preview area
+        }
+    }
+
+    renderDownloadPreview(data) {
+         if (!this.downloadPreviewArea) return;
+         this.ensureFontAwesome(); // Ensure icons are loaded
+         // Safely extract data (similar to renderSearchResults but from the /get_model_details payload)
+         const modelId = data.model_id;
+         const modelName = data.model_name || 'Untitled Model';
+         const creator = data.creator_username || 'Unknown Creator';
+         const modelType = data.model_type || 'N/A';
+         const versionName = data.version_name || 'N/A';
+         const baseModel = data.base_model || 'N/A';
+         const stats = data.stats || {};
+         const descriptionHtml = data.description_html || '<p><em>No description.</em></p>';
+         const version_description_html = data.version_description_html || '<p><em>No description.</em></p>';
+         const fileInfo = data.file_info || {};
+         const thumbnail = data.thumbnail_url || PLACEHOLDER_IMAGE_URL; // Use placeholder if missing
+         const civitaiLink = `https://civitai.com/models/${modelId}${data.version_id ? '?modelVersionId='+data.version_id : ''}`;
+
+         const placeholder = PLACEHOLDER_IMAGE_URL;
+         const onErrorScript = `this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';`;
+
+         // --- Generate HTML (similar to search result item) ---
+         // We can reuse the 'civitai-search-item' class for styling or create a new one. Let's reuse for now.
+         const previewHtml = `
+            <div class="civitai-search-item" style="background-color: var(--comfy-input-bg);"> <!-- Style override for clarity -->
+                <div class="civitai-thumbnail-container">
+                    <img src="${thumbnail}" alt="${modelName} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
+                    <div class="civitai-type-badge">${modelType}</div>
+                </div>
+                <div class="civitai-search-info">
+                    <h4>${modelName} <span style="font-weight: normal; font-size: 0.9em;">by ${creator}</span></h4>
+                    <p style="font-weight: bold;">Version: ${versionName} <span class="base-model-badge" style="margin-left: 5px;">${baseModel}</span></p>
+
+                    <div class="civitai-search-stats" title="Stats: Downloads / Rating (Count) / Likes">
+                        <span title="Downloads"><i class="fas fa-download"></i> ${stats.downloads?.toLocaleString() || 0}</span>
+                        <span title="Likes"><i class="fas fa-thumbs-up"></i> ${stats.likes?.toLocaleString(0) || 0}</span>
+                        <span title="Dislikes"><i class="fas fa-thumbs-down"></i> ${stats.dislikes?.toLocaleString() || 0}</span>
+                        <span title="Buzz"><i class="fas fa-bolt"></i> ${stats.buzz?.toLocaleString() || 0}</span>
+                    </div>
+
+                    <p style="font-weight: bold; margin-top: 10px;">Primary File:</p>
+                    <p style="font-size: 0.9em; color: #ccc;">
+                        Name: ${fileInfo.name || 'N/A'}<br>
+                        Size: ${this.formatBytes(fileInfo.size_kb * 1024) || 'N/A'} <br> <!-- Convert KB to bytes for formatter -->
+                        Format: ${fileInfo.format || 'N/A'}
+                    </p>
+                     <a href="${civitaiLink}" target="_blank" rel="noopener noreferrer" class="civitai-button small" title="Open on Civitai website" style="margin-top: 5px; display: inline-block;">
+                        View on Civitai <i class="fas fa-external-link-alt"></i>
+                    </a>
+
+                </div>
+                </div>
+                <!-- Description Section -->
+                <div style="margin-top: 15px;">
+                     <h5 style="margin-bottom: 5px;">Model Description:</h5>
+                     <div class="model-description-content" style="max-height: 200px; overflow-y: auto; background-color: var(--comfy-input-bg); padding: 10px; border-radius: 4px; font-size: 0.9em; border: 1px solid var(--border-color, #555);">
+                         ${descriptionHtml}
+                     </div>
+                </div>
+                <div style="margin-top: 15px;">
+                     <h5 style="margin-bottom: 5px;">Version Description:</h5>
+                     <div class="model-description-content" style="max-height: 200px; overflow-y: auto; background-color: var(--comfy-input-bg); padding: 10px; border-radius: 4px; font-size: 0.9em; border: 1px solid var(--border-color, #555);">
+                         ${version_description_html}
+                     </div>
+                </div>
+
+         `; // End of previewHtml
+
+         this.downloadPreviewArea.innerHTML = previewHtml;
+
+    }
+
     async handleDownloadSubmit() {
         this.downloadSubmitButton.disabled = true;
         this.downloadSubmitButton.textContent = 'Starting...';
@@ -858,13 +1047,7 @@ class CivitaiDownloaderUI {
 
             if (result.status === 'queued') {
                 this.showToast(`Download queued: ${result.details?.filename || 'Model'}`, 'success');
-                // Optionally clear some fields, but maybe keep type/connections?
-                this.modelUrlInput.value = '';
-                this.customFilenameInput.value = '';
-                this.modelVersionIdInput.value = '';
-                this.forceRedownloadCheckbox.checked = false;
 
-                 // Optionally switch to status tab based on setting
                  if(this.settings.autoOpenStatusTab) {
                     this.switchTab('status');
                  } else {
@@ -1023,57 +1206,95 @@ class CivitaiDownloaderUI {
     }
 
     async updateStatus() {
-         // Only fetch if the modal is open, saves background requests when not needed
-         if (!this.modal || !this.modal.classList.contains('open')) {
-             // Optionally stop polling entirely if closed? Handled by open/closeModal now.
-             // console.log("[Civicomfy] Modal closed, skipping status update fetch.");
-             return;
-         }
-
+        // Only fetch if the modal is open... (keep existing check)
+        if (!this.modal || !this.modal.classList.contains('open')) {
+            return;
+        }
         try {
             const newStatusData = await CivitaiDownloaderAPI.getStatus();
+
             // Basic check if data structure is valid
-             if (newStatusData && Array.isArray(newStatusData.active) && Array.isArray(newStatusData.queue) && Array.isArray(newStatusData.history)) {
+            if (newStatusData && Array.isArray(newStatusData.active) && Array.isArray(newStatusData.queue) && Array.isArray(newStatusData.history)) {
 
-                   // Naive check for changes: stringify and compare? Crude but simple.
-                   const changed = JSON.stringify(this.statusData) !== JSON.stringify(newStatusData);
+                // --- MERGE LOGIC ---
+                // 1. Keep track of IDs in the current history (from cookie/previous state)
+                const existingHistoryIds = new Set(this.statusData.history.map(item => item.id));
 
-                   this.statusData = newStatusData;
+                // 2. Filter the history from the API to include only items *not already* in our existing history
+                const newHistoryItemsFromAPI = newStatusData.history.filter(item => !existingHistoryIds.has(item.id));
 
-                   // Update the status indicator bubble in the tab header
-                   const activeCount = this.statusData.active.length + this.statusData.queue.length;
-                   this.activeCountSpan.textContent = activeCount;
-                   this.statusIndicator.style.display = activeCount > 0 ? 'inline' : 'none';
+                // 3. Combine the new unique items from the API with the existing history
+                //    Prepend new items so most recent finished appear first
+                let combinedHistory = [...newHistoryItemsFromAPI, ...this.statusData.history];
 
-                    // Only re-render lists if the status tab is currently active AND data changed
-                    if (this.activeTab === 'status' && changed) {
-                        // console.log("[Civicomfy] Status data changed, re-rendering lists.");
-                        this.renderDownloadList(this.statusData.active, this.activeListContainer, 'No active downloads.');
-                        this.renderDownloadList(this.statusData.queue, this.queuedListContainer, 'Download queue is empty.');
-                        this.renderDownloadList(this.statusData.history, this.historyListContainer, 'No download history yet.');
-                    } else if (this.activeTab === 'status' && !changed) {
-                         // console.log("[Civicomfy] Status data unchanged, skipping re-render.");
-                    }
+                // 4. (Optional but recommended) Sort combined history - e.g., by end_time descending if available
+                combinedHistory.sort((a, b) => {
+                    const timeA = a.end_time || a.added_time || 0; // Use endTime, fallback to addedTime
+                    const timeB = b.end_time || b.added_time || 0;
+                    // Handle potential null/undefined times robustly
+                     if (timeA && !timeB) return -1; // A has time, B doesn't -> A comes first
+                     if (!timeA && timeB) return 1;  // B has time, A doesn't -> B comes first
+                     if (!timeA && !timeB) return 0; // Neither has time, keep original relative order (or sort by ID?)
+                    // Both have time, sort descending (most recent first)
+                    return new Date(timeB).getTime() - new Date(timeA).getTime();
+                });
 
-             } else {
-                  console.warn("[Civicomfy] Received invalid status data structure:", newStatusData);
-                   // Optionally clear lists or show error if structure is wrong?
-             }
+                // 5. Limit the combined history
+                const limitedHistory = combinedHistory.slice(0, this.maxHistoryItems);
+
+                // --- CHECK FOR CHANGES ---
+                // Compare relevant parts: active, queue, and the *potentially updated* history
+                const oldStateString = JSON.stringify({
+                    active: this.statusData.active,
+                    queue: this.statusData.queue,
+                    history: this.statusData.history // Use history *before* updating it below
+                });
+                 const newStateString = JSON.stringify({
+                    active: newStatusData.active,
+                    queue: newStatusData.queue,
+                    history: limitedHistory // Use the *new* limited history for comparison
+                });
+                const changed = oldStateString !== newStateString;
+
+                // --- UPDATE STATUS DATA ---
+                // Update active and queue directly from the API
+                this.statusData.active = newStatusData.active;
+                this.statusData.queue = newStatusData.queue;
+                // Update history with the combined, sorted, and limited list
+                this.statusData.history = limitedHistory;
+
+                // --- UPDATE UI ---
+                // Update the status indicator bubble
+                const activeCount = this.statusData.active.length + this.statusData.queue.length;
+                this.activeCountSpan.textContent = activeCount;
+                this.statusIndicator.style.display = activeCount > 0 ? 'inline' : 'none';
+
+                // Only re-render lists if the status tab is active AND data changed
+                if (this.activeTab === 'status' && changed) {
+                    // console.log("[Civicomfy] Status data changed, re-rendering lists.");
+                    this.renderDownloadList(this.statusData.active, this.activeListContainer, 'No active downloads.');
+                    this.renderDownloadList(this.statusData.queue, this.queuedListContainer, 'Download queue is empty.');
+                    this.renderDownloadList(this.statusData.history, this.historyListContainer, 'No download history yet.');
+                } else if (this.activeTab === 'status' && !changed) {
+                    // console.log("[Civicomfy] Status data unchanged, skipping re-render.");
+                }
+
+            } else {
+                console.warn("[Civicomfy] Received invalid status data structure:", newStatusData);
+                // Handle error display as before...
+            }
 
         } catch (error) {
             console.error("[Civicomfy] Failed to update status:", error);
-            // Show error message ON the status tab if it's active
+            // Handle error display as before...
              if (this.activeTab === 'status') {
                  const errorHtml = `<p style="color: var(--error-text, #ff6b6b);">Failed to load status: ${error.details || error.message}</p>`;
-                 // Avoid clearing constantly if error persists
                  if (!this.activeListContainer.innerHTML.includes("Failed to load status")) {
                      this.activeListContainer.innerHTML = errorHtml;
                      this.queuedListContainer.innerHTML = '';
                      this.historyListContainer.innerHTML = '';
                  }
              }
-             // Maybe stop polling after several consecutive errors?
-             // For now, just log it and rely on user closing modal to stop.
         }
     }
 
@@ -1226,8 +1447,11 @@ class CivitaiDownloaderUI {
             if (status === 'queued' || status === 'downloading' || status === 'starting') {
                 innerHTML += `<button class="civitai-button danger small civitai-cancel-button" data-id="${id}" title="Cancel Download"><i class="fas fa-times"></i></button>`;
             }
-             if (status === 'failed' || status === 'cancelled') {
+            if (status === 'failed' || status === 'cancelled') {
                 innerHTML += `<button class="civitai-button small civitai-retry-button" data-id="${id}" disabled title="Retry not implemented"><i class="fas fa-redo"></i></button>`;
+            }
+            if (status === 'completed') {
+                innerHTML += `<button class="civitai-button small civitai-openpath-button" data-id="${id}" title="Open download path"><i class="fas fa-folder-open"></i></button>`;
             }
             innerHTML += `</div>`; // Close civitai-download-actions
 

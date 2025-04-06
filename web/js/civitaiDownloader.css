@@ -586,3 +586,36 @@
   opacity: 1;
   visibility: visible;
 }
+
+.civitai-download-preview-area {
+    /* Add specific margins/padding if needed */
+     min-height: 50px; /* Ensure it has some height for the loading spinner */
+}
+
+/* Style for the description box */
+.model-description-content {
+    max-height: 200px; /* Limit height */
+    overflow-y: auto; /* Allow scrolling */
+    background-color: var(--comfy-input-bg); /* Match input background */
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 0.9em; /* Slightly smaller text */
+    border: 1px solid var(--border-color, #555);
+    color: var(--comfy-text-color); /* Ensure text color matches */
+    line-height: 1.5; /* Improve readability */
+}
+
+/* Style links within the description */
+.model-description-content a {
+    color: var(--accent-color, #5c8aff); /* Make links stand out */
+    text-decoration: underline;
+}
+.model-description-content a:hover {
+    color: #8bb0ff; /* Lighter color on hover */
+}
+
+/* Ensure reused search item styles look okay in this context */
+.civitai-download-preview-area .civitai-search-item {
+    margin-bottom: 15px; /* Add space below the item */
+     background-color: var(--comfy-input-bg); /* Explicitly set background */
+}
