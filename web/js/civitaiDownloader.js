@@ -17,9 +17,7 @@ function setCookie(name, value, days) {
         date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
         expires = "; expires=" + date.toUTCString();
     }
-    // Use SameSite=Lax for reasonable security and usability within the domain
     document.cookie = name + "=" + (value || "") + expires + "; path=/; SameSite=Lax";
-    // console.log("Setting cookie:", name, "=", value, "; expires=", expires);
 }
 
 function getCookie(name) {
@@ -30,15 +28,13 @@ function getCookie(name) {
         while (c.charAt(0) == ' ') c = c.substring(1, c.length);
         if (c.indexOf(nameEQ) == 0) {
             const value = c.substring(nameEQ.length, c.length);
-            // console.log("Found cookie:", name, "=", value);
             return value;
         }
     }
-    // console.log("Cookie not found:", name);
     return null;
 }
 
-function deleteCookie(name) {
+function deleteCookie(name) { // Keep for potentially clearing settings cookie
     document.cookie = name + '=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax';
 }
 
@@ -271,11 +267,8 @@ class CivitaiDownloaderUI {
         this.settings = this.getDefaultSettings(); // Initialize with defaults first
         this.toastTimeout = null;
         this.modelPreviewDebounceTimeout = null;
-        this.downloadHistoryCookieName = 'civitaiDownloadHistory';
-        this.maxHistoryItems = 50; // Limit history size
-        this.loadHistoryFromCookie();
-        this.updateStatus();
 
+        this.updateStatus();
         this.buildModalHTML(); // Creates this.modal element
         this.cacheDOMElements();
         this.setupEventListeners();
@@ -332,57 +325,6 @@ class CivitaiDownloaderUI {
         } catch (e) {
             console.error("Failed to save settings to cookie:", e);
             this.showToast('Error saving settings', 'error');
-        }
-    }
-
-    loadHistoryFromCookie() {
-        // ... (existing logic is fine - it loads if cookie exists)
-        const cookieValue = getCookie(this.downloadHistoryCookieName);
-        if (cookieValue) {
-            try {
-                const history = JSON.parse(cookieValue);
-                if (Array.isArray(history)) {
-                    // Make sure history items have IDs before assigning
-                    if (history.every(item => typeof item.id !== 'undefined')) {
-                         this.statusData.history = history;
-                         console.log("[Civicomfy] Download history loaded from cookie.");
-                    } else {
-                         console.warn("[Civicomfy] History from cookie missing IDs. Discarding.");
-                         this.clearLocalHistoryCookie(); // Clear corrupted cookie
-                         this.statusData.history = [];
-                    }
-                    return;
-                } else {
-                    console.warn("[Civicomfy] Invalid history format from cookie.");
-                    this.clearLocalHistoryCookie(); // Clear invalid cookie
-                    this.statusData.history = [];
-                }
-            } catch (error) {
-                console.error("[Civicomfy] Failed to parse download history cookie:", error);
-                this.clearLocalHistoryCookie(); // Clear corrupted cookie
-                this.statusData.history = [];
-            }
-        } else {
-             console.log("[Civicomfy] No download history cookie found, starting fresh.");
-             this.statusData.history = []; // Ensure history is empty if no cookie
-        }
-    }
-
-    saveHistoryToCookie() {
-        // This should only be called when status updates *add* to the history,
-        // *not* when history is cleared. Clearing is handled separately.
-        try {
-            if (this.statusData.history.length > 0) { // Only save if there's history
-                const limitedHistory = this.statusData.history.slice(0, this.maxHistoryItems);
-                const historyString = JSON.stringify(limitedHistory);
-                setCookie(this.downloadHistoryCookieName, historyString, 30);
-                //console.log("[Civicomfy] Download history saved to cookie."); // Can be noisy
-            } else {
-                 // If history is empty, ensure the cookie is also cleared
-                 this.clearLocalHistoryCookie();
-            }
-        } catch (error) {
-            console.error("[Civicomfy] Failed to save download history to cookie:", error);
         }
     }
 
@@ -830,55 +772,58 @@ class CivitaiDownloaderUI {
             }
     
             // --- ADD Listeners for Confirmation Modal Buttons ---
-             if (this.confirmClearModal && this.confirmClearYesButton && this.confirmClearNoButton) {
-                 // YES Button (Confirm Clear)
-                 this.confirmClearYesButton.addEventListener('click', async () => {
-                     console.log("[Civicomfy UI] Confirm Clear clicked.");
-                     this.confirmClearYesButton.disabled = true;
-                     this.confirmClearNoButton.disabled = true;
-                     this.confirmClearYesButton.textContent = 'Clearing...';
+            if (this.confirmClearModal && this.confirmClearYesButton && this.confirmClearNoButton) {
+                // YES Button (Confirm Clear) - MODIFIED
+                this.confirmClearYesButton.addEventListener('click', async () => {
+                    console.log("[Civicomfy UI] Confirm Clear clicked.");
+                    this.confirmClearYesButton.disabled = true;
+                    this.confirmClearNoButton.disabled = true;
+                    this.confirmClearYesButton.textContent = 'Clearing...';
     
-                     try {
-                         const result = await CivitaiDownloaderAPI.clearHistory();
-                         if (result.success) {
-                             this.showToast(result.message || 'History cleared successfully!', 'success');
-                             // --- CRUCIAL: Clear local state and cookie ---
-                             this.statusData.history = []; // Clear in-memory state
-                             this.clearLocalHistoryCookie(); // Clear the persistent cookie
-                             // Refresh UI
-                             this.updateStatus(); // This will now render the empty history
-                             this.confirmClearModal.style.display = 'none'; // Hide modal
-                         } else {
-                             this.showToast(`Clear history failed: ${result.details || result.error || 'Unknown error'}`, 'error', 5000);
-                         }
-                     } catch (error) {
-                         const message = `Clear history failed: ${error.details || error.message || 'Network error'}`;
-                         console.error("Clear History UI Error:", error);
-                         this.showToast(message, 'error', 5000);
-                     } finally {
-                         // Always re-enable buttons and reset text
-                         this.confirmClearYesButton.disabled = false;
-                         this.confirmClearNoButton.disabled = false;
-                         this.confirmClearYesButton.textContent = 'Confirm Clear';
-                     }
-                 });
+                    try {
+                        // Call the backend API to clear history
+                        const result = await CivitaiDownloaderAPI.clearHistory();
     
-                 // NO Button (Cancel)
-                 this.confirmClearNoButton.addEventListener('click', () => {
-                     console.log("[Civicomfy UI] Cancel Clear clicked.");
-                     this.confirmClearModal.style.display = 'none'; // Hide modal
-                 });
+                        if (result.success) {
+                            this.showToast(result.message || 'History cleared successfully!', 'success');
+                            // --- CRUCIAL: Clear local state AFTER backend confirmation ---
+                            this.statusData.history = []; // Clear in-memory state
+                            // Re-render the history list immediately
+                            this.renderDownloadList(this.statusData.history, this.historyListContainer, 'No download history yet.');
+                            this.confirmClearModal.style.display = 'none'; // Hide modal
+                        } else {
+                            // Backend reported failure
+                            this.showToast(`Clear history failed: ${result.details || result.error || 'Unknown error'}`, 'error', 5000);
+                        }
+                    } catch (error) {
+                        // API call itself failed (network etc.)
+                        const message = `Clear history failed: ${error.details || error.message || 'Network error'}`;
+                        console.error("Clear History UI Error:", error);
+                        this.showToast(message, 'error', 5000);
+                    } finally {
+                        // Always re-enable buttons and reset text
+                        this.confirmClearYesButton.disabled = false;
+                        this.confirmClearNoButton.disabled = false;
+                        this.confirmClearYesButton.textContent = 'Confirm Clear';
+                    }
+                });
     
-                  // Optional: Close modal if clicking outside the content
-                 this.confirmClearModal.addEventListener('click', (event) => {
-                     if (event.target === this.confirmClearModal) { // Check if click is on the modal backdrop itself
-                          this.confirmClearModal.style.display = 'none';
-                     }
-                 });
+                // NO Button (Cancel) - (remains the same)
+                this.confirmClearNoButton.addEventListener('click', () => {
+                    console.log("[Civicomfy UI] Cancel Clear clicked.");
+                    this.confirmClearModal.style.display = 'none'; // Hide modal
+                });
     
-             } else {
-                  console.error("Confirmation modal buttons not found during setup!");
-             }
+                // Optional: Close modal if clicking outside the content (remains the same)
+                this.confirmClearModal.addEventListener('click', (event) => {
+                    if (event.target === this.confirmClearModal) {
+                        this.confirmClearModal.style.display = 'none';
+                    }
+                });
+    
+            } else {
+                 console.error("Confirmation modal buttons not found during setup!");
+            }
         });
 
          // Search result Actions (Download Button)
@@ -1006,7 +951,6 @@ class CivitaiDownloaderUI {
 
         // Specific actions when switching TO a tab
         if (tabId === 'status') {
-            this.loadHistoryFromCookie();
             this.updateStatus(); // Refresh status immediately when switching to tab
         } else if (tabId === 'settings') {
              // Re-apply settings from 'this.settings' to ensure UI matches state
@@ -1391,54 +1335,39 @@ class CivitaiDownloaderUI {
 
     async updateStatus() {
         if (!this.modal || !this.modal.classList.contains('open')) {
-             // If modal is closed, and we were polling, potentially save history to cookie ONE LAST TIME here?
-             // Only if there were changes detected maybe? Could be complex.
-             // For now, just save when status changes *while open*.
+             // REMOVED saveHistoryToCookie() call here
             return;
         }
         let dataChanged = false; // Track changes
+
         try {
             const newStatusData = await CivitaiDownloaderAPI.getStatus();
 
             if (newStatusData && Array.isArray(newStatusData.active) && Array.isArray(newStatusData.queue) && Array.isArray(newStatusData.history)) {
-
-                // --- MERGE LOGIC (Keep existing merge logic) ---
-                const existingHistoryIds = new Set(this.statusData.history.map(item => item.id).filter(Boolean)); // Ensure IDs exist
-                const newHistoryItemsFromAPI = newStatusData.history.filter(item => item && item.id && !existingHistoryIds.has(item.id));
-                let combinedHistory = [...newHistoryItemsFromAPI, ...this.statusData.history];
-                combinedHistory.sort((a, b) => {
-                    const timeA = a.end_time || a.added_time || 0;
-                    const timeB = b.end_time || b.added_time || 0;
-                    if (timeA && !timeB) return -1; if (!timeA && timeB) return 1; if (!timeA && !timeB) return 0;
-                    return new Date(timeB).getTime() - new Date(timeA).getTime();
-                });
-                const limitedHistory = combinedHistory.slice(0, this.maxHistoryItems);
-
                 // --- CHECK FOR CHANGES ---
+                 // Compare *only* based on API data now
                  const oldStateString = JSON.stringify({ a: this.statusData.active, q: this.statusData.queue, h: this.statusData.history });
-                 const newStateString = JSON.stringify({ a: newStatusData.active, q: newStatusData.queue, h: limitedHistory });
+                 // Use the history directly from the API response
+                 const newStateString = JSON.stringify({ a: newStatusData.active, q: newStatusData.queue, h: newStatusData.history });
                  dataChanged = oldStateString !== newStateString;
 
                 // --- UPDATE STATUS DATA ---
                 this.statusData.active = newStatusData.active;
                 this.statusData.queue = newStatusData.queue;
-                this.statusData.history = limitedHistory; // Update with merged/limited history
+                // Directly assign history from API (already limited by backend if needed)
+                this.statusData.history = newStatusData.history;
 
-                // --- UPDATE UI ---
+                // --- UPDATE UI (only if data changed) ---
                 const activeCount = this.statusData.active.length + this.statusData.queue.length;
                 this.activeCountSpan.textContent = activeCount;
                 this.statusIndicator.style.display = activeCount > 0 ? 'inline' : 'none';
 
-                if (this.activeTab === 'status' && dataChanged) {
+                if (this.activeTab === 'status') {
                     this.renderDownloadList(this.statusData.active, this.activeListContainer, 'No active downloads.');
                     this.renderDownloadList(this.statusData.queue, this.queuedListContainer, 'Download queue is empty.');
+                    // Render history using the data received directly from the API
                     this.renderDownloadList(this.statusData.history, this.historyListContainer, 'No download history yet.');
                 }
-
-                 // --- Save to Cookie if data changed ---
-                 if (dataChanged) {
-                    this.saveHistoryToCookie();
-                 }
 
             } else {
                 console.warn("[Civicomfy] Received invalid status data structure:", newStatusData);
@@ -1634,14 +1563,6 @@ class CivitaiDownloaderUI {
              return 'N/A';
          }
      }
-
-     
-
-    clearLocalHistoryCookie() {
-        if (this.downloadHistoryCookieName) {
-            deleteCookie(this.downloadHistoryCookieName);
-        }
-    }
 
   
 

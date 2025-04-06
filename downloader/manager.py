@@ -1,37 +1,35 @@
 # ================================================
-# File: downloader/manager.py
+# File: downloader/manager.py (Updated)
 # ================================================
 import threading
 import time
 import datetime
 import os
-import json
+import json                     # <--- Added
 import requests
-import subprocess # For opening path
-import platform   # For checking OS
-import sys        # For checking OS
+import subprocess
+import platform
+import sys
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
-from typing import List, Dict, Any, Optional
-
-# Use typing for Downloader class hint to avoid circular import
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .chunk_downloader import ChunkDownloader
 
-# Import config consts
 from ..config import (
     MAX_CONCURRENT_DOWNLOADS, DOWNLOAD_HISTORY_LIMIT, DEFAULT_CONNECTIONS,
-    METADATA_SUFFIX, PREVIEW_SUFFIX, METADATA_DOWNLOAD_TIMEOUT
+    METADATA_SUFFIX, PREVIEW_SUFFIX, METADATA_DOWNLOAD_TIMEOUT, PLUGIN_ROOT # <--- Added PLUGIN_ROOT
 )
-# Import ComfyUI path functions if available (adjust path as needed)
 try:
     from folder_paths import get_directory_by_type, get_valid_path, base_path
     COMFY_PATHS_AVAILABLE = True
 except ImportError:
     print("[Civicomfy Manager] Warning: ComfyUI folder_paths not available. Path validation/opening might be limited.")
     COMFY_PATHS_AVAILABLE = False
-    # Define fallback base_path if needed for security checks
-    base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")) # Adjust relative path based on your structure
+    base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+# --- Define History File Path ---
+# Place it in the root of the extension directory
+HISTORY_FILE_PATH = os.path.join(PLUGIN_ROOT, "download_history.json")
 
 class DownloadManager:
     """Manages a queue of downloads, running them concurrently and saving metadata."""
@@ -44,6 +42,7 @@ class DownloadManager:
         self.lock: threading.Lock = threading.Lock()
         self.max_concurrent: int = max(1, max_concurrent)
         self.running: bool = True
+        self._load_history_from_file()
         self._process_thread: threading.Thread = threading.Thread(target=self._process_queue, daemon=True)
         print(f"Civitai Download Manager starting (Max Concurrent: {self.max_concurrent}).")
         self._process_thread.start()
@@ -212,31 +211,149 @@ class DownloadManager:
                 "history": history_list,
             }
 
-    # --- CRITICAL CHANGE: _add_to_history now stores more data ---
+    def _load_history_from_file(self):
+        """Loads download history from the JSON file."""
+        # No lock needed here as it's called during __init__ before the thread starts
+        if not os.path.exists(HISTORY_FILE_PATH):
+            print(f"[Manager] History file not found ({HISTORY_FILE_PATH}). Starting with empty history.")
+            self.history = []
+            return
+
+        try:
+            with open(HISTORY_FILE_PATH, 'r', encoding='utf-8') as f:
+                loaded_data = json.load(f)
+
+            if isinstance(loaded_data, list):
+                # Basic validation: Ensure items have IDs (optional but good)
+                validated_history = [item for item in loaded_data if isinstance(item, dict) and 'id' in item]
+                invalid_count = len(loaded_data) - len(validated_history)
+                if invalid_count > 0:
+                    print(f"[Manager Warning] {invalid_count} items removed from loaded history due to missing 'id'.")
+
+                # Ensure history limit
+                self.history = validated_history[:DOWNLOAD_HISTORY_LIMIT]
+                print(f"[Manager] Successfully loaded {len(self.history)} items from {HISTORY_FILE_PATH}.")
+            else:
+                print(f"[Manager Warning] History file ({HISTORY_FILE_PATH}) contained invalid data (not a list). Starting fresh.")
+                self.history = []
+                # Optionally try to delete the corrupted file?
+                # try: os.remove(HISTORY_FILE_PATH) except Exception: pass
+
+        except json.JSONDecodeError as e:
+             print(f"[Manager Error] Failed to parse history file ({HISTORY_FILE_PATH}): {e}. Starting fresh.")
+             self.history = []
+             # Optionally try to delete the corrupted file?
+        except Exception as e:
+            print(f"[Manager Error] Failed to read history file ({HISTORY_FILE_PATH}): {e}. Starting fresh.")
+            self.history = []
+
+    # --- Save History Method ---
+    def _save_history_to_file(self):
+        """Saves the current in-memory history list to the JSON file."""
+        # Assumes self.lock is HELD when this is called
+        history_to_save = self.history[:DOWNLOAD_HISTORY_LIMIT] # Ensure limit before saving
+
+        try:
+            # Ensure directory exists (should already, but belt-and-suspenders)
+            os.makedirs(os.path.dirname(HISTORY_FILE_PATH), exist_ok=True)
+
+            # Write atomically (write to temp then rename) to reduce corruption risk
+            temp_file_path = HISTORY_FILE_PATH + ".tmp"
+            with open(temp_file_path, 'w', encoding='utf-8') as f:
+                json.dump(history_to_save, f, indent=2, ensure_ascii=False) # Pretty print
+
+            os.replace(temp_file_path, HISTORY_FILE_PATH) # Atomic rename/replace
+            # print(f"[Manager] Saved {len(history_to_save)} items to history file.") # Can be noisy
+
+        except Exception as e:
+             # Log error, but don't crash the manager
+             print(f"[Manager Error] Failed to save history file ({HISTORY_FILE_PATH}): {e}")
+             # Attempt to remove temp file if it exists
+             if os.path.exists(temp_file_path):
+                  try: os.remove(temp_file_path)
+                  except Exception: pass
+
+    # --- Updated _add_to_history Method ---
     def _add_to_history(self, download_info: Dict[str, Any]):
         """Adds a completed/failed/cancelled item to history (internal).
-           Stores most original parameters needed for potential retry."""
-        # Create a copy, only exclude the actual downloader instance object
+           Stores most original parameters needed for potential retry.
+           NOW ALSO TRIGGERS SAVING HISTORY TO FILE."""
+        # --- (Keep existing logic to prepare info_copy) ---
         info_copy = {
             k: v for k, v in download_info.items()
             if k not in ['downloader_instance']
         }
-        # Ensure end time and status are set
         if "end_time" not in info_copy or info_copy["end_time"] is None:
              info_copy["end_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if "status" not in info_copy:
-             info_copy["status"] = "unknown" # Should have been set before getting here
-
-        # --- Add/Update specific fields for history clarity ---
-        # Example: Store the final error message prominently if not already there
+             info_copy["status"] = "unknown"
         if info_copy["status"] != "completed" and not info_copy.get("error"):
             info_copy["error"] = f"Finished with status '{info_copy['status']}' but no error recorded."
 
-        self.history.insert(0, info_copy) # Prepend to keep newest first
-        # Trim history
-        if len(self.history) > DOWNLOAD_HISTORY_LIMIT + 50:
-             self.history = self.history[:DOWNLOAD_HISTORY_LIMIT]
+        # --- Update in-memory history ---
+        self.history.insert(0, info_copy) # Prepend
+        # Trim in-memory list (save will also respect limit)
+        if len(self.history) > DOWNLOAD_HISTORY_LIMIT:
+            self.history = self.history[:DOWNLOAD_HISTORY_LIMIT]
 
+        # --- Trigger Save to File (still under lock) ---
+        self._save_history_to_file() # <--- Added call
+
+    # --- Updated clear_history Method ---
+    def clear_history(self) -> Dict[str, Any]:
+        """Clears the download history (in-memory and the JSON file)."""
+        cleared_count = 0
+        file_deleted = False
+        error_msg = None
+
+        try:
+            with self.lock:
+                cleared_count = len(self.history)
+                if cleared_count > 0:
+                    print(f"[Manager] Clearing {cleared_count} items from in-memory history.")
+                    self.history = [] # Clear memory list first
+
+                    # Attempt to delete the history file
+                    if os.path.exists(HISTORY_FILE_PATH):
+                        try:
+                            os.remove(HISTORY_FILE_PATH)
+                            file_deleted = True
+                            print(f"[Manager] Deleted history file: {HISTORY_FILE_PATH}")
+                        except OSError as e:
+                            error_msg = f"Failed to delete history file {HISTORY_FILE_PATH}: {e}"
+                            print(f"[Manager Error] {error_msg}")
+                    else:
+                        print(f"[Manager] History file ({HISTORY_FILE_PATH}) did not exist, nothing to delete.")
+                        file_deleted = True # Consider success if file wasn't there anyway
+
+                else:
+                    print("[Manager] History clear request received, but history was already empty.")
+                    # Should we still check/delete the file just in case? Yes.
+                    if os.path.exists(HISTORY_FILE_PATH):
+                        try:
+                            os.remove(HISTORY_FILE_PATH)
+                            file_deleted = True
+                            print(f"[Manager] Deleted potentially orphaned history file: {HISTORY_FILE_PATH}")
+                        except OSError as e:
+                             error_msg = f"Failed to delete potentially orphaned history file {HISTORY_FILE_PATH}: {e}"
+                             print(f"[Manager Error] {error_msg}")
+                    else:
+                        file_deleted = True # Success if clear requested and neither memory/file had anything
+
+            if error_msg:
+                 return {"success": False, "error": f"History cleared from memory, but could not delete file: {error_msg}"}
+            elif cleared_count > 0:
+                 return {"success": True, "message": f"Cleared {cleared_count} history items (memory and file)."}
+            else:
+                 # If count was 0 but file deletion was attempted/succeeded
+                 return {"success": True, "message": "History was already empty."}
+
+        except Exception as e:
+            print(f"[Manager] Critical error during clear_history: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": f"Failed to clear history due to unexpected error: {e}"}
+        
     # --- _process_queue remains the same ---
     def _process_queue(self):
         """Internal thread function to manage downloads."""
@@ -299,27 +416,7 @@ class DownloadManager:
 
         print("[Manager] Process queue thread stopped.")
 
-    def clear_history(self) -> Dict[str, Any]:
-        """Clears the download history stored in the manager."""
-        cleared_count = 0
-        try:
-            with self.lock:
-                cleared_count = len(self.history)
-                if cleared_count > 0:
-                    self.history = []
-                    print(f"[Manager] Cleared {cleared_count} items from download history.")
-                else:
-                    print("[Manager] History clear request received, but history was already empty.")
-
-            # Note: This only clears the *in-memory* history.
-            # The frontend will need to clear its cookie separately if used.
-            return {"success": True, "message": f"Cleared {cleared_count} history items." if cleared_count > 0 else "History was already empty."}
-        except Exception as e:
-            print(f"[Manager] Error clearing history: {e}")
-            import traceback
-            traceback.print_exc()
-            return {"success": False, "error": f"Failed to clear history: {e}"}
-    # --- _update_download_status remains the same ---
+   # --- _update_download_status remains the same ---
     def _update_download_status(self, download_id: str, status: Optional[str] = None,
                                 progress: Optional[float] = None, speed: Optional[float] = None,
                                 error: Optional[str] = None, connection_type: Optional[str] = None):
