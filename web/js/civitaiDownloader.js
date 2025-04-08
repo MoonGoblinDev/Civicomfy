@@ -1107,67 +1107,74 @@ class CivitaiDownloaderUI {
     }
 
     async handleDownloadSubmit() {
-        this.downloadSubmitButton.disabled = true;
-        this.downloadSubmitButton.textContent = 'Starting...';
-
-        const modelUrlOrId = this.modelUrlInput.value.trim();
-        if (!modelUrlOrId) {
-            this.showToast("Model URL or ID cannot be empty.", "error");
-            this.downloadSubmitButton.disabled = false;
-            this.downloadSubmitButton.textContent = 'Start Download';
-            return;
+        if(this.settings.apiKey == null || this.settings.apiKey == ""){
+            this.showToast("API key empty, please fill your API key in the settings", "error");
+            this.switchTab("settings")
         }
+        else{
+            this.downloadSubmitButton.disabled = true;
+            this.downloadSubmitButton.textContent = 'Starting...';
 
-        const params = {
-            model_url_or_id: modelUrlOrId,
-            model_type: this.downloadModelTypeSelect.value, // The selected save location type key
-            model_version_id: this.modelVersionIdInput.value ? parseInt(this.modelVersionIdInput.value, 10) : null,
-            custom_filename: this.customFilenameInput.value.trim(),
-            num_connections: parseInt(this.downloadConnectionsInput.value, 10),
-            force_redownload: this.forceRedownloadCheckbox.checked,
-            api_key: this.settings.apiKey // Pass API key from current settings state
-        };
-
-        // Basic validation
-         if (isNaN(params.num_connections) || params.num_connections < 1 || params.num_connections > 16) {
-             this.showToast("Invalid number of connections (must be 1-16).", "error");
-             this.downloadSubmitButton.disabled = false;
-             this.downloadSubmitButton.textContent = 'Start Download';
-             return;
-         }
-
-        try {
-            const result = await CivitaiDownloaderAPI.downloadModel(params);
-
-            if (result.status === 'queued') {
-                this.showToast(`Download queued: ${result.details?.filename || 'Model'}`, 'success');
-
-                 if(this.settings.autoOpenStatusTab) {
-                    this.switchTab('status');
-                 } else {
-                     this.updateStatus(); // Still update status in background even if not switching
-                 }
-
-            } else if (result.status === 'exists' || result.status === 'exists_size_mismatch') {
-                // File exists message
-                this.showToast(`${result.message}`, 'info', 4000); // Show info longer
-
-            } else {
-                 // Handle unexpected success response from backend (should ideally be queued/exists)
-                console.warn("Unexpected success response from /civitai/download:", result);
-                this.showToast(`Unexpected status: ${result.status} - ${result.message || ''}`, 'info');
+            const modelUrlOrId = this.modelUrlInput.value.trim();
+            if (!modelUrlOrId) {
+                this.showToast("Model URL or ID cannot be empty.", "error");
+                this.downloadSubmitButton.disabled = false;
+                this.downloadSubmitButton.textContent = 'Start Download';
+                return;
             }
-        } catch (error) {
-             // Error format from _request helper: error.message / error.details / error.status
-             // Prioritize details if available
-             const message = `Download failed: ${error.details || error.message || 'Unknown error'}`;
-             console.error("Download Submit Error:", error);
-             this.showToast(message, 'error', 6000); // Show error longer
 
-        } finally {
-            this.downloadSubmitButton.disabled = false;
-            this.downloadSubmitButton.textContent = 'Start Download';
+            const params = {
+                model_url_or_id: modelUrlOrId,
+                model_type: this.downloadModelTypeSelect.value, // The selected save location type key
+                model_version_id: this.modelVersionIdInput.value ? parseInt(this.modelVersionIdInput.value, 10) : null,
+                custom_filename: this.customFilenameInput.value.trim(),
+                num_connections: parseInt(this.downloadConnectionsInput.value, 10),
+                force_redownload: this.forceRedownloadCheckbox.checked,
+                api_key: this.settings.apiKey // Pass API key from current settings state
+            };
+
+            // Basic validation
+            if (isNaN(params.num_connections) || params.num_connections < 1 || params.num_connections > 16) {
+                this.showToast("Invalid number of connections (must be 1-16).", "error");
+                this.downloadSubmitButton.disabled = false;
+                this.downloadSubmitButton.textContent = 'Start Download';
+                return;
+            }
+
+            try {
+                const result = await CivitaiDownloaderAPI.downloadModel(params);
+
+                if (result.status === 'queued') {
+                    this.showToast(`Download queued: ${result.details?.filename || 'Model'}`, 'success');
+
+                    if(this.settings.autoOpenStatusTab) {
+                        this.switchTab('status');
+                    } else {
+                        this.updateStatus(); // Still update status in background even if not switching
+                    }
+
+                } else if (result.status === 'exists' || result.status === 'exists_size_mismatch') {
+                    // File exists message
+                    this.showToast(`${result.message}`, 'info', 4000); // Show info longer
+
+                } else {
+                    // Handle unexpected success response from backend (should ideally be queued/exists)
+                    console.warn("Unexpected success response from /civitai/download:", result);
+                    this.showToast(`Unexpected status: ${result.status} - ${result.message || ''}`, 'info');
+                }
+            } catch (error) {
+                // Error format from _request helper: error.message / error.details / error.status
+                // Prioritize details if available
+                const message = `Download failed: ${error.details || error.message || 'Unknown error'}`;
+                console.error("Download Submit Error:", error);
+                this.showToast(message, 'error', 6000); // Show error longer
+
+            } finally {
+                this.downloadSubmitButton.disabled = false;
+                this.downloadSubmitButton.textContent = 'Start Download';
+            }
         }
+        
     }
 
     async handleSearchSubmit() {
@@ -1902,6 +1909,9 @@ class CivitaiDownloaderUI {
         // Refresh status immediately if status tab is the active one upon opening
          if (this.activeTab === 'status') {
               this.updateStatus();
+         }
+         if (this.settings.apiKey == null || this.settings.apiKey == ""){
+            this.switchTab('settings')
          }
     }
 
