@@ -402,6 +402,14 @@ async def route_download_model(request):
                      else:
                          print(f"[Server Download] Warning: Could not fetch model info ({target_model_id}) after inferring from version.")
                          model_info = {} # Use empty dict as placeholder
+                else:
+                    model_info_result = api.get_model_info(target_model_id)
+                    if model_info_result and "error" not in model_info_result:
+                         model_info = model_info_result
+                    else:
+                         print(f"[Server Download] Warning: Could not fetch model info ({target_model_id}) after inferring from version.")
+                         model_info = {} # Use empty dict as placeholder
+
             else:
                 # Handle API error or not found for version ID
                 err_details = version_info_result.get('details') if isinstance(version_info_result, dict) else "Unknown API error"
