@@ -11,10 +11,20 @@ Civicomfy seamlessly integrates Civitai's vast model repository directly into Co
 
 ## Installation
 
+Git clone
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/MoonGoblinDev/Civicomfy.git
 ```
+
+Comfy-CLI
+```bash
+comfy node registry-install civicomfy
+```
+
+ComfyUI Manager
+
+<img width="813" alt="Screenshot 2025-04-08 at 11 42 46" src="https://github.com/user-attachments/assets/5d4f5261-88f6-4aa0-9c66-d1811bb49e09" />
 
 ## Usage
 
