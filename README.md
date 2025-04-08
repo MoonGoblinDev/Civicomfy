@@ -11,10 +11,20 @@ Civicomfy seamlessly integrates Civitai's vast model repository directly into Co
 
 ## Installation
 
+Git clone
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/MoonGoblinDev/Civicomfy.git
 ```
+
+Comfy-CLI
+```bash
+comfy node registry-install civicomfy
+```
+
+ComfyUI Manager
+
+<img width="813" alt="Screenshot 2025-04-08 at 11 42 46" src="https://github.com/user-attachments/assets/5d4f5261-88f6-4aa0-9c66-d1811bb49e09" />
 
 ## Usage
 
@@ -29,10 +39,12 @@ git clone https://github.com/MoonGoblinDev/Civicomfy.git
 - Enter your Civitai API Token in the setting
 
 ## Screenshots
-<img width="917" alt="Screenshot 2025-04-02 at 07 22 12" src="https://github.com/user-attachments/assets/d26a2b3d-7bea-47c0-b06c-f1f483faa56c" />
-<img width="917" alt="Screenshot 2025-04-02 at 07 22 30" src="https://github.com/user-attachments/assets/ad07a51f-7862-4d71-85f5-19652c1bc36f" />
-<img width="917" alt="Screenshot 2025-04-02 at 07 22 58" src="https://github.com/user-attachments/assets/6f6dbf03-b352-4435-a771-4ad604fcbc8d" />
-<img width="917" alt="Screenshot 2025-04-02 at 07 23 05" src="https://github.com/user-attachments/assets/f0ad6dbf-294c-4d34-acf2-fdb6ced82450" />
+<img width="911" alt="Screenshot 2025-04-08 at 11 24 40" src="https://github.com/user-attachments/assets/b9be0c32-729d-490e-be61-2dc072cd9b15" />
+<img width="911" alt="Screenshot 2025-04-08 at 11 23 17" src="https://github.com/user-attachments/assets/cb747c22-afd0-4baf-a9a2-39c70fb11e46" />
+<img width="911" alt="Screenshot 2025-04-08 at 11 25 15" src="https://github.com/user-attachments/assets/02b6d841-a0fa-484c-91a4-4095a7554c3f" />
+<img width="911" alt="Screenshot 2025-04-08 at 11 25 24" src="https://github.com/user-attachments/assets/20fcfcb5-3345-4a72-89fe-ee9c50626ebc" />
+
+
 
 
 ## Contributing
