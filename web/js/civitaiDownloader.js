@@ -628,76 +628,134 @@ class CivitaiDownloaderUI {
         // Modal close
         this.closeButton.addEventListener('click', () => this.closeModal());
         this.modal.addEventListener('click', (event) => {
-            // Close if clicked outside the content area
             if (event.target === this.modal) {
                 this.closeModal();
             }
         });
-
+    
         // Tab switching
         this.tabContainer.addEventListener('click', (event) => {
             if (event.target.matches('.civitai-downloader-tab')) {
                 this.switchTab(event.target.dataset.tab);
             }
         });
-
-        // Download form submission
+    
+        // Download form submission & input handlers
         this.downloadForm.addEventListener('submit', (event) => {
             event.preventDefault();
             this.handleDownloadSubmit();
         });
-
         this.modelUrlInput.addEventListener('input', () => {
             this.debounceFetchDownloadPreview();
         });
         this.modelUrlInput.addEventListener('paste', () => {
-            // Trigger immediately on paste for better UX
-            this.debounceFetchDownloadPreview(0); // 0ms delay
+            this.debounceFetchDownloadPreview(0);
         });
-
         this.modelVersionIdInput.addEventListener('blur', () => {
-            this.fetchAndDisplayDownloadPreview(); // Fetch immediately on blur
-       });
-
+            this.fetchAndDisplayDownloadPreview();
+        });
+    
         // Search form submission
         this.searchForm.addEventListener('submit', (event) => {
             event.preventDefault();
-            // Validate that there's at least a query or a filter selected
             if (!this.searchQueryInput.value.trim() &&
                 this.searchTypeSelect.value === 'any' &&
                 this.searchBaseModelSelect.value === 'any')
             {
                  this.showToast("Please enter a search query or select a Type/Base Model filter.", "error");
                  if (this.searchResultsContainer) this.searchResultsContainer.innerHTML = '<p>Please enter a search query or select a filter.</p>';
-                 if (this.searchPaginationContainer) this.searchPaginationContainer.innerHTML = ''; // Clear pagination
+                 if (this.searchPaginationContainer) this.searchPaginationContainer.innerHTML = '';
                  return;
             }
-
-            this.searchPagination.currentPage = 1; // Reset to first page on new search
+            this.searchPagination.currentPage = 1;
             this.handleSearchSubmit();
         });
-
+    
          // Settings form submission
         this.settingsForm.addEventListener('submit', (event) => {
             event.preventDefault();
             this.handleSettingsSave();
         });
-
-        // --- Event Delegation for dynamic buttons ---
-
-        // Status tab Actions (Cancel/Retry)
-        this.statusContent.addEventListener('click', async (event) => { // Make async
-            const button = event.target.closest('button'); // Find nearest button clicked
+    
+        // --- Direct Listeners for Static Buttons ---
+    
+        // Clear History Button (shows confirmation modal) - MOVED HERE
+        if (this.clearHistoryButton) {
+            this.clearHistoryButton.addEventListener('click', () => {
+                 console.log("[Civicomfy UI] Clear History button clicked.");
+                 if (this.confirmClearModal) {
+                     this.confirmClearModal.style.display = 'flex'; // Use flex for centering
+                 } else {
+                     console.error("Confirmation modal element not found!");
+                 }
+            });
+        } else {
+            console.error("Clear History button not found during setup!");
+        }
+    
+        // Confirmation Modal Buttons - MOVED HERE
+        if (this.confirmClearModal && this.confirmClearYesButton && this.confirmClearNoButton) {
+            // YES Button (Confirm Clear)
+            this.confirmClearYesButton.addEventListener('click', async () => {
+                console.log("[Civicomfy UI] Confirm Clear clicked.");
+                this.confirmClearYesButton.disabled = true;
+                this.confirmClearNoButton.disabled = true;
+                this.confirmClearYesButton.textContent = 'Clearing...';
+    
+                try {
+                    const result = await CivitaiDownloaderAPI.clearHistory();
+                    if (result.success) {
+                        this.showToast(result.message || 'History cleared successfully!', 'success');
+                        this.statusData.history = []; // Clear in-memory state
+                        this.renderDownloadList(this.statusData.history, this.historyListContainer, 'No download history yet.');
+                        this.confirmClearModal.style.display = 'none'; // Hide modal
+                    } else {
+                        this.showToast(`Clear history failed: ${result.details || result.error || 'Unknown error'}`, 'error', 5000);
+                    }
+                } catch (error) {
+                    const message = `Clear history failed: ${error.details || error.message || 'Network error'}`;
+                    console.error("Clear History UI Error:", error);
+                    this.showToast(message, 'error', 5000);
+                } finally {
+                    this.confirmClearYesButton.disabled = false;
+                    this.confirmClearNoButton.disabled = false;
+                    this.confirmClearYesButton.textContent = 'Confirm Clear';
+                }
+            });
+    
+            // NO Button (Cancel)
+            this.confirmClearNoButton.addEventListener('click', () => {
+                console.log("[Civicomfy UI] Cancel Clear clicked.");
+                this.confirmClearModal.style.display = 'none'; // Hide modal
+            });
+    
+            // Optional: Close modal if clicking outside the content
+            this.confirmClearModal.addEventListener('click', (event) => {
+                if (event.target === this.confirmClearModal) {
+                    this.confirmClearModal.style.display = 'none';
+                }
+            });
+    
+        } else {
+             console.error("Confirmation modal buttons not found during setup!");
+        }
+    
+        // --- Event Delegation for *Dynamic* Buttons within Lists ---
+    
+        // Status tab Actions (Cancel/Retry/Open Path for list items) - MODIFIED
+        this.statusContent.addEventListener('click', async (event) => {
+            const button = event.target.closest('button');
             if (!button) return; // Exit if click wasn't on or inside a button
-
+    
+            // *** Check for data-id: Only handle buttons associated with a specific download item here ***
             const downloadId = button.dataset.id;
-            if (!downloadId) return; // Exit if button has no download ID
-
-            // --- Handle Cancel ---
+            if (!downloadId) return; // If no ID, it's not a cancel/retry/open button, ignore here.
+    
+            // Handle Cancel
             if (button.classList.contains('civitai-cancel-button')) {
-                 this.handleCancelDownload(downloadId); // Keep existing handler
+                 this.handleCancelDownload(downloadId);
             }
-            // --- Handle Retry ---
+            // Handle Retry
             else if (button.classList.contains('civitai-retry-button')) {
                  console.log(`[Civicomfy UI] Retry button clicked for ID: ${downloadId}`);
                  button.disabled = true;
@@ -707,16 +765,13 @@ class CivitaiDownloaderUI {
                     const result = await CivitaiDownloaderAPI.retryDownload(downloadId);
                     if (result.success) {
                         this.showToast(result.message || `Retry queued successfully!`, 'success');
-                        // Switch to status tab if autoOpen is enabled and we are not already there
                         if(this.settings.autoOpenStatusTab && this.activeTab !== 'status') {
                             this.switchTab('status');
                         } else {
-                            this.updateStatus(); // Refresh status list
+                            this.updateStatus();
                         }
                     } else {
-                         // Use error.details from _request if available, fallback to result.error
                          this.showToast(`Retry failed: ${result.details || result.error || 'Unknown error'}`, 'error', 5000);
-                         // Re-enable button on failure
                          button.disabled = false;
                          button.innerHTML = '<i class="fas fa-redo"></i>';
                          button.title = "Retry Download";
@@ -725,17 +780,16 @@ class CivitaiDownloaderUI {
                     const message = `Retry failed: ${error.details || error.message || 'Network error'}`;
                     console.error("Retry Download UI Error:", error);
                     this.showToast(message, 'error', 5000);
-                    // Re-enable button on caught error
                     button.disabled = false;
                     button.innerHTML = '<i class="fas fa-redo"></i>';
                     button.title = "Retry Download";
                 }
             }
-            // --- Handle Open Path ---
+            // Handle Open Path
             else if (button.classList.contains('civitai-openpath-button')) {
                  console.log(`[Civicomfy UI] Open path button clicked for ID: ${downloadId}`);
-                 const originalIcon = button.innerHTML; // Store original icon
-                 button.disabled = true; // Disable temporarily during request
+                 const originalIcon = button.innerHTML;
+                 button.disabled = true;
                  button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
                  button.title = "Opening...";
                 try {
@@ -750,185 +804,95 @@ class CivitaiDownloaderUI {
                     console.error("Open Path UI Error:", error);
                     this.showToast(message, 'error', 5000);
                 } finally {
-                     // Always re-enable the button and restore icon
                      button.disabled = false;
                      button.innerHTML = originalIcon;
                      button.title = "Open download path";
                 }
             }
-
-            if (this.clearHistoryButton) {
-                this.clearHistoryButton.addEventListener('click', () => {
-                     console.log("[Civicomfy UI] Clear History button clicked.");
-                     // Show the confirmation modal
-                     if (this.confirmClearModal) {
-                         this.confirmClearModal.style.display = 'flex'; // Use flex for centering
-                     } else {
-                         console.error("Confirmation modal element not found!");
-                     }
-                });
-            } else {
-                console.error("Clear History button not found during setup!");
-            }
-    
-            // --- ADD Listeners for Confirmation Modal Buttons ---
-            if (this.confirmClearModal && this.confirmClearYesButton && this.confirmClearNoButton) {
-                // YES Button (Confirm Clear) - MODIFIED
-                this.confirmClearYesButton.addEventListener('click', async () => {
-                    console.log("[Civicomfy UI] Confirm Clear clicked.");
-                    this.confirmClearYesButton.disabled = true;
-                    this.confirmClearNoButton.disabled = true;
-                    this.confirmClearYesButton.textContent = 'Clearing...';
-    
-                    try {
-                        // Call the backend API to clear history
-                        const result = await CivitaiDownloaderAPI.clearHistory();
-    
-                        if (result.success) {
-                            this.showToast(result.message || 'History cleared successfully!', 'success');
-                            // --- CRUCIAL: Clear local state AFTER backend confirmation ---
-                            this.statusData.history = []; // Clear in-memory state
-                            // Re-render the history list immediately
-                            this.renderDownloadList(this.statusData.history, this.historyListContainer, 'No download history yet.');
-                            this.confirmClearModal.style.display = 'none'; // Hide modal
-                        } else {
-                            // Backend reported failure
-                            this.showToast(`Clear history failed: ${result.details || result.error || 'Unknown error'}`, 'error', 5000);
-                        }
-                    } catch (error) {
-                        // API call itself failed (network etc.)
-                        const message = `Clear history failed: ${error.details || error.message || 'Network error'}`;
-                        console.error("Clear History UI Error:", error);
-                        this.showToast(message, 'error', 5000);
-                    } finally {
-                        // Always re-enable buttons and reset text
-                        this.confirmClearYesButton.disabled = false;
-                        this.confirmClearNoButton.disabled = false;
-                        this.confirmClearYesButton.textContent = 'Confirm Clear';
-                    }
-                });
-    
-                // NO Button (Cancel) - (remains the same)
-                this.confirmClearNoButton.addEventListener('click', () => {
-                    console.log("[Civicomfy UI] Cancel Clear clicked.");
-                    this.confirmClearModal.style.display = 'none'; // Hide modal
-                });
-    
-                // Optional: Close modal if clicking outside the content (remains the same)
-                this.confirmClearModal.addEventListener('click', (event) => {
-                    if (event.target === this.confirmClearModal) {
-                        this.confirmClearModal.style.display = 'none';
-                    }
-                });
-    
-            } else {
-                 console.error("Confirmation modal buttons not found during setup!");
-            }
         });
-
-         // Search result Actions (Download Button)
-        // Search result Actions (Download Button and Show All Versions) - MODIFIED
+    
+         // Search result Actions (Download Button and Show All Versions)
         this.searchResultsContainer.addEventListener('click', (event) => {
+            // ... (Existing logic for search results is fine using delegation) ...
             const downloadButton = event.target.closest('.civitai-search-download-button');
-            const viewAllButton = event.target.closest('.show-all-versions-button'); // ADDED: Check for this button
-
-            if (downloadButton) { // Existing download logic
-                 // Prevent handling if the click was also somehow on the view all button ancestor (unlikely but safe)
+            const viewAllButton = event.target.closest('.show-all-versions-button');
+    
+            if (downloadButton) {
                  if (viewAllButton && downloadButton.contains(viewAllButton)) return;
-
+    
                 const modelId = downloadButton.dataset.modelId;
                 const versionId = downloadButton.dataset.versionId;
                 const modelTypeApi = downloadButton.dataset.modelType;
                 const defaultSaveTypeKey = this.settings.defaultModelType;
-
+    
                 if (!modelId || !versionId) {
                     console.error("Missing model/version ID on search download button.");
                     this.showToast("Error: Missing data for download.", "error");
                     return;
                 }
-
-                // Determine save location... (rest of your existing download logic)
                 const modelTypeInternalKey = Object.keys(this.modelTypes).find(key =>
                     (this.modelTypes[key]?.toLowerCase() === modelTypeApi?.toLowerCase()) ||
                     (key === modelTypeApi?.toLowerCase())
                 ) || defaultSaveTypeKey;
-
+    
                 console.log(`Search DL: ModelID=${modelId}, VersionID=${versionId}, API Type=${modelTypeApi}, Target Save Key=${modelTypeInternalKey}`);
-
                 this.modelUrlInput.value = modelId;
                 this.modelVersionIdInput.value = versionId;
                 this.customFilenameInput.value = '';
                 this.forceRedownloadCheckbox.checked = false;
                 this.downloadConnectionsInput.value = this.settings.numConnections;
-
                 this.switchTab('download');
-
+    
                 if (this.downloadModelTypeSelect.querySelector(`option[value="${modelTypeInternalKey}"]`)) {
                     this.downloadModelTypeSelect.value = modelTypeInternalKey;
                     console.log(`Set download dropdown value AFTER switchTab to: ${modelTypeInternalKey}`);
                 } else {
                     console.warn(`Target save type '${modelTypeInternalKey}' not found in dropdown after switchTab. Default '${defaultSaveTypeKey}' should be selected.`);
                 }
-
                 this.showToast(`Filled download form for Model ID ${modelId}. Review save location.`, 'info', 4000);
                 this.fetchAndDisplayDownloadPreview();
-                return; // Important: Stop further processing if it was a download button
-
-            } else if (viewAllButton) { // **** ADDED: Handler for 'Show All Versions' ****
+                return;
+    
+            } else if (viewAllButton) {
                  const modelId = viewAllButton.dataset.modelId;
                  if (!modelId) {
                      console.error("Missing model ID on show-all-versions button.");
                      return;
                  }
-
-                 // Find the container holding the extra versions within the same search result item
-                 // The container ID was set in renderSearchResults as `all-versions-${modelId}`
                  const versionsContainer = this.searchResultsContainer.querySelector(`#all-versions-${modelId}`);
-                 const icon = viewAllButton.querySelector('i'); // Get the icon element
-
+                 const icon = viewAllButton.querySelector('i');
                  if (versionsContainer) {
                      const currentlyVisible = versionsContainer.style.display !== 'none';
                      if (currentlyVisible) {
-                         // Hide the versions
                          versionsContainer.style.display = 'none';
-                         // Restore original button text/icon
                          viewAllButton.innerHTML = `All versions (${viewAllButton.dataset.totalVersions}) <i class="fas fa-chevron-down"></i>`;
                          viewAllButton.title = `Show all ${viewAllButton.dataset.totalVersions} versions`;
-                         // Optional: Set ARIA attribute for accessibility
-                         // viewAllButton.setAttribute('aria-expanded', 'false');
                      } else {
-                         // Show the versions (use 'block' or 'flex' or 'grid' depending on how you want them displayed)
-                         // Setting to 'block' is usually safe for simple buttons vertically listed.
-                         // You might need 'display: flex; flex-direction: column; gap: 5px;' via CSS instead.
-                         versionsContainer.style.display = 'flex';
-                         // Change button text/icon
+                         versionsContainer.style.display = 'flex'; // Or 'block'
                          viewAllButton.innerHTML = `Show less <i class="fas fa-chevron-up"></i>`;
                          viewAllButton.title = `Show less versions`;
-                         // Optional: Set ARIA attribute for accessibility
-                         // viewAllButton.setAttribute('aria-expanded', 'true');
                      }
                  } else {
                      console.warn(`Could not find versions container #all-versions-${modelId}`);
                  }
-                 return; // Stop further processing
+                 return;
             }
-
-            // If other delegated events are needed within searchResultsContainer, add more `else if` blocks here.
         });
-
+    
         // Pagination (using event delegation)
         this.searchPaginationContainer.addEventListener('click', (event) => {
+            // ... (Existing logic for pagination is fine using delegation) ...
             const button = event.target.closest('.civitai-page-button');
-             if (button && !button.disabled) { // Check if button and not disabled
+             if (button && !button.disabled) {
                  const page = parseInt(button.dataset.page, 10);
                  if (page && page !== this.searchPagination.currentPage) {
                      this.searchPagination.currentPage = page;
-                     this.handleSearchSubmit(); // <-- **** UNCOMMENT THIS LINE ****
+                     this.handleSearchSubmit();
                  }
              }
          });
-         
-    }
+    
+    } // End setupEventListeners
 
     switchTab(tabId) {
         if (this.activeTab === tabId || !this.tabs[tabId] || !this.tabContents[tabId]) {

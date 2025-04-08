@@ -693,6 +693,7 @@ class DownloadManager:
             # Make a deep copy to avoid modifying the history item directly
             try:
                 retry_info = json.loads(json.dumps(original_info))
+                print(retry_info)
             except Exception as e:
                  return {"success": False, "error": f"Failed to copy original download data: {e}"}
 
@@ -706,8 +707,7 @@ class DownloadManager:
             retry_info.pop("end_time", None)
             retry_info.pop("added_time", None)
             retry_info.pop("connection_type", None)
-            retry_info.pop("downloader_instance", None) # Should have been removed by history add anyway
-
+            retry_info.pop("downloader_instance", None) 
             # --- Crucially: Set force_redownload to True for retry ---
             # This ensures it overwrites the potentially corrupted/partial file from the previous attempt.
             retry_info["force_redownload"] = True
@@ -720,16 +720,33 @@ class DownloadManager:
                 'custom_filename', 'force_redownload'
             ]
             missing_keys = [key for key in required_for_retry if key not in retry_info or retry_info[key] is None and key != 'api_key' and key != 'custom_filename'] # Allow api_key/custom_filename to be None
-            if missing_keys:
-                return {"success": False, "error": f"Cannot retry: Original download data is missing required fields: {', '.join(missing_keys)}"}
+            #if missing_keys:
+            #    return {"success": False, "error": f"Cannot retry: Original download data is missing required fields: {', '.join(missing_keys)}"}
 
         # --- Add the prepared info to the queue (outside the lock for add_to_queue's own lock) ---
         # Note: add_to_queue acquires its own lock internally
         try:
             new_download_id = self.add_to_queue(retry_info)
-            filename = retry_info.get('filename', 'Unknown file')
-            print(f"[Manager] Retrying download '{filename}' (Original ID: {original_download_id}). New ID: {new_download_id}")
-            return {"success": True, "message": f"Retry initiated for '{filename}'. New download queued.", "new_download_id": new_download_id}
+            if new_download_id: # Check if add_to_queue returned a valid ID (indicating success)
+                with self.lock:
+                    original_len = len(self.history)
+                    # Filter out the item matching the original ID
+                    self.history = [item for item in self.history if item.get("id") != original_download_id]
+                    items_removed = original_len - len(self.history)
+
+                    if items_removed == 1:
+                        print(f"[Manager] Successfully removed original download '{original_download_id}' from history.")
+                        return {
+                            "success": True,
+                            "message": f"Retry initiated. New download queued. Original removed from history.",
+                            "new_download_id": new_download_id
+                        }
+
+            else:
+                # Should have been caught by the except block, but as a failsafe
+                print(f"[Manager] Retry queueing failed for '{original_download_id}' for an unknown reason (no ID returned).")
+                return {"success": False, "error": "Failed to queue retry (unknown internal error)."}
+        
         except Exception as e:
              print(f"[Manager] Error requeuing download for retry (Original ID: {original_download_id}): {e}")
              return {"success": False, "error": f"Failed to queue retry: {e}"}
@@ -782,7 +799,7 @@ class DownloadManager:
                  comfy_base = os.path.abspath(base_path)
                  if os.path.commonpath([comfy_base, folder_path]) == comfy_base:
                       is_safe_path = True
-                      print(f"[Manager OpenPath Warning] ComfyUI paths unavailable. Using base path check for {folder_path}")
+                      #print(f"[Manager OpenPath Warning] ComfyUI paths unavailable. Using base path check for {folder_path}")
 
             if not is_safe_path:
                   print(f"[Manager OpenPath Denied] Path '{folder_path}' is outside known safe ComfyUI directories.")
