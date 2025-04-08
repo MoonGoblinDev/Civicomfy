@@ -416,15 +416,16 @@ class CivitaiDownloaderUI {
                                 </div>
                                 <div class="civitai-form-group">
                                     <label for="civitai-connections">Connections</label>
-                                    <input type="number" id="civitai-connections" class="civitai-input" value="${this.settings.numConnections}" min="1" max="16" step="1" required>
-                                </div>
+                                    <input type="number" id="civitai-connections" class="civitai-input" value="${this.settings.numConnections}" min="1" max="16" step="1" required disabled>
+                                    <p style="font-size: 0.9em; color: #ccc; margin-top: 7px; margin-bottom: 15px;">Disabled: Only single connection possible for now</p>
+                                    </div>
                             </div>
                             <div class="civitai-form-group inline">
                                  <input type="checkbox" id="civitai-force-redownload" class="civitai-checkbox">
                                 <label for="civitai-force-redownload">Force Re-download (if exists)</label>
                             </div>
 
-                            <div id="civitai-download-preview-area" class="civitai-download-preview-area" style="margin-top: 25px; padding-top: 15px; border-top: 1px solid var(--border-color, #444);">
+                            <div id="civitai-download-preview-area" class="civitai-download-preview-area" style="margin-top: 25px; margin-bottom: 25px; padding-top: 15px; border-top: 1px solid var(--border-color, #444);">
                             <!-- Preview content will be injected here -->
                             </div>
 
@@ -503,7 +504,8 @@ class CivitaiDownloaderUI {
                                 </div>
                                 <div class="civitai-form-group">
                                     <label for="civitai-settings-connections">Default Connections</label>
-                                    <input type="number" id="civitai-settings-connections" class="civitai-input" value="4" min="1" max="16" step="1" required>
+                                    <input type="number" id="civitai-settings-connections" class="civitai-input" value="1" min="1" max="16" step="1" required disabled>
+                                    <p style="font-size: 0.85em; color: #bbb; margin-top: 5px;">Disabled. Only single connection possible for now</p>
                                 </div>
                                 <div class="civitai-form-group">
                                     <label for="civitai-settings-default-type">Default Model Type (for saving)</label>
@@ -561,7 +563,7 @@ class CivitaiDownloaderUI {
         this.modelVersionIdInput = this.modal.querySelector('#civitai-model-version-id');
         this.downloadModelTypeSelect = this.modal.querySelector('#civitai-model-type');
         this.customFilenameInput = this.modal.querySelector('#civitai-custom-filename');
-        this.downloadConnectionsInput = this.modal.querySelector('#civitai-connections');
+        this.downloadConnectionsInput = this.modal.querySelector('#civitai-connections'); // Disabled for now
         this.forceRedownloadCheckbox = this.modal.querySelector('#civitai-force-redownload');
         this.downloadSubmitButton = this.modal.querySelector('#civitai-download-submit');
 
@@ -591,7 +593,7 @@ class CivitaiDownloaderUI {
         // Settings Tab
         this.settingsForm = this.modal.querySelector('#civitai-settings-form');
         this.settingsApiKeyInput = this.modal.querySelector('#civitai-settings-api-key');
-        this.settingsConnectionsInput = this.modal.querySelector('#civitai-settings-connections');
+        this.settingsConnectionsInput = this.modal.querySelector('#civitai-settings-connections'); // Disabled for now
         this.settingsDefaultTypeSelect = this.modal.querySelector('#civitai-settings-default-type');
         this.settingsAutoOpenCheckbox = this.modal.querySelector('#civitai-settings-auto-open-status');
         // this.settingsSearchResultLimitInput = this.modal.querySelector('#civitai-settings-search-limit'); // If limit setting added
