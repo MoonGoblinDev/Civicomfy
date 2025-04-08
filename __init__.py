@@ -18,8 +18,7 @@ CSS_FILE_PATH = os.path.join(JS_PATH, CSS_FILENAME)
 # Import configurations and utility functions first
 # Ensure config and helpers don't have side effects unsuitable for just checking files
 try:
-    from .config import WEB_DIRECTORY as config_WEB_DIRECTORY, PLACEHOLDER_IMAGE_PATH
-    from .utils.helpers import create_placeholder_image
+    from .config import WEB_DIRECTORY as config_WEB_DIRECTORY
     # Import downloader manager (creates the instance)
     from .downloader import manager as download_manager
     # Import server routes (registers the routes)
@@ -88,15 +87,6 @@ if imports_successful:
          print("- WARNING: Frontend files missing (see warnings above). UI may not work.")
     print("- Look for 'Civicomfy' button in the ComfyUI menu.")
     print("-" * 30)
-
-    # Create placeholder image if needed (can run even if other things failed)
-    try:
-        create_placeholder_image(PLACEHOLDER_IMAGE_PATH)
-    except NameError:
-        # Handle case where PLACEHOLDER_IMAGE_PATH itself failed to import
-        print("[Civicomfy] Warning: Could not create placeholder image due to failed config import.")
-    except Exception as e:
-        print(f"[Civicomfy] Error trying to create placeholder image: {e}")
 
 else:
     # If imports failed, don't register anything with ComfyUI

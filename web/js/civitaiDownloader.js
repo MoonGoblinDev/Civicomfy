@@ -4,10 +4,10 @@ import { api } from "../../../scripts/api.js";
 console.log("Loading Civicomfy UI...");
 
 // --- Configuration ---
-const EXTENSION_NAME = "Civicomfy"; // Matches Python WEB_DIRECTORY
+const EXTENSION_NAME = "Civicomfy";
 const CSS_URL = `./civitaiDownloader.css`;
-const PLACEHOLDER_IMAGE_URL = `./placeholder.png`;
-const SETTINGS_COOKIE_NAME = 'civitaiDownloaderSettings'; // Cookie name
+const PLACEHOLDER_IMAGE_URL = `/extensions/Civicomfy/images/placeholder.jpeg`;
+const SETTINGS_COOKIE_NAME = 'civitaiDownloaderSettings'; 
 
 // --- Cookie Helper Functions ---
 function setCookie(name, value, days) {
@@ -32,10 +32,6 @@ function getCookie(name) {
         }
     }
     return null;
-}
-
-function deleteCookie(name) { // Keep for potentially clearing settings cookie
-    document.cookie = name + '=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax';
 }
 
 // --- CSS Injection ---
@@ -1614,6 +1610,7 @@ class CivitaiDownloaderUI {
 
             // Thumbnail URL (pre-processed by backend)
             const thumbnailUrl = hit.thumbnailUrl || placeholder;
+            const thumbnailType = hit.images[0].type
 
             // --- Version Info ---
             const allVersions = hit.versions || []; // Array of all available versions
@@ -1722,11 +1719,37 @@ class CivitaiDownloaderUI {
                 `;
             }
 
+            let thumbnailHtml = '';
+            const videoTitle = `Video preview for ${modelName}`;
+            const imageAlt = `${modelName} thumbnail`;
+
+            if (thumbnailUrl && typeof thumbnailUrl === 'string' && thumbnailType == "video") {
+                thumbnailHtml = `
+                    <video class="civitai-search-thumbnail"
+                           src="${thumbnailUrl}"
+                           autoplay loop muted playsinline
+                           title="${videoTitle}"
+                           onerror="console.error('Failed to load video preview:', this.src)">
+                           <!-- Optional: Fallback message if video tag not supported -->
+                           Your browser does not support the video tag.
+                    </video>
+                `;
+            } else {
+                // It's likely an IMAGE or missing, render IMG tag with fallback
+                const effectiveThumbnailUrl = thumbnailUrl || placeholder; // Use placeholder if URL is missing
+                thumbnailHtml = `
+                    <img src="${effectiveThumbnailUrl}"
+                         alt="${imageAlt}"
+                         class="civitai-search-thumbnail"
+                         loading="lazy"
+                         onerror="${onErrorScript}">
+                `;
+            }
+
             // --- Construct Final Inner HTML for the List Item ---
             listItem.innerHTML = `
                 <div class="civitai-thumbnail-container">
-                    <img src="${thumbnailUrl}" alt="${modelName} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
-                    <div class="civitai-type-badge">${modelTypeApi}</div>
+                    ${thumbnailHtml}
                 </div>
                 <div class="civitai-search-info">
                     <h4>${modelName}</h4>

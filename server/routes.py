@@ -276,22 +276,13 @@ async def route_get_model_details(request):
         else:
             print("[Get Details Route] No valid first image found in version info, falling back to placeholder.")
             # Fallback placeholder logic (remains the same)
-            placeholder_filename = os.path.basename(PLACEHOLDER_IMAGE_PATH) if PLACEHOLDER_IMAGE_PATH else "placeholder.png"
+            placeholder_filename = os.path.basename(PLACEHOLDER_IMAGE_PATH) if PLACEHOLDER_IMAGE_PATH else "placeholder.jpeg"
             thumbnail_url = f"./{placeholder_filename}" # Relative path for JS to resolve
 
 
         # Fallback placeholder if no thumbnail found
         if not thumbnail_url:
-            # Construct the absolute path to the placeholder served by ComfyUI
-            # Note: This assumes the placeholder is served relative to the extension's web directory
-            # We need the URL path, not the file system path here.
-            # Placeholder URL should be relative to the extension root served at /extensions/Civicomfy/
-            # The JS already uses `./placeholder.png` which means `/extensions/Civicomfy/placeholder.png`
-            # Python doesn't know the final URL, so we send a conventional relative path. The JS knows how to resolve it.
-            # Let's send the filename and let JS handle the path if needed, OR send the known JS relative path.
-             # Check if the constant PLACEHOLDER_IMAGE_PATH is defined and not empty
-             placeholder_filename = os.path.basename(PLACEHOLDER_IMAGE_PATH) if PLACEHOLDER_IMAGE_PATH else "placeholder.png"
-             # The JS knows `./placeholder.png` resolves correctly from its context.
+             placeholder_filename = os.path.basename(PLACEHOLDER_IMAGE_PATH) if PLACEHOLDER_IMAGE_PATH else "placeholder.jpeg"
              thumbnail_url = f"./{placeholder_filename}" # Relative path for JS
 
         # --- Return curated data ---

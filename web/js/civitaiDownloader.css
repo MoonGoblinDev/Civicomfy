@@ -673,3 +673,34 @@
     padding: 8px 15px; /* Adjust padding */
     min-width: 80px; /* Ensure minimum width */
 }
+
+/* Ensure both img and video within the thumbnail container behave similarly */
+.civitai-thumbnail-container img.civitai-search-thumbnail,
+.civitai-thumbnail-container video.civitai-search-thumbnail,
+.civitai-thumbnail-container img.civitai-download-thumbnail,
+.civitai-thumbnail-container video.civitai-download-thumbnail {
+    display: block; /* Prevent extra space below */
+    width: 100%;    /* Fill the container width */
+    height: 100%;   /* Fill the container height */
+    object-fit: cover; /* Scale while maintaining aspect ratio, cropping if needed */
+    background-color: #333; /* Background for loading/error states */
+}
+
+/* You might already have rules for the container itself, ensure they define a size */
+.civitai-thumbnail-container {
+    width: 100px; /* Example size */
+    height: 140px; /* Example size */
+    overflow: hidden; /* Hide parts of the video/image outside the cover area */
+    position: relative; /* For positioning badges etc. */
+    flex-shrink: 0; /* Prevent shrinking in flex layouts */
+    border-radius: 4px; /* Match styling */
+}
+
+/* Style for the type badge (likely exists) */
+.civitai-type-badge {
+    /* ... existing styles ... */
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    /* ... */
+}

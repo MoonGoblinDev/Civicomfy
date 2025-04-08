@@ -208,8 +208,6 @@ def sanitize_filename(filename: str, default_filename: str = "downloaded_model")
          print(f"Warning: Sanitized filename truncated to {max_len} characters.")
 
     return sanitized
-
-def create_placeholder_image(path: str):
     """Creates a simple placeholder image if Pillow is available."""
     target_dir = os.path.dirname(path)
     if not os.path.exists(target_dir):
