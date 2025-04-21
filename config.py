@@ -33,6 +33,8 @@ MODELS_DIR = folder_paths.models_dir # Base 'models' directory
 # The subfolder_name is relative to the ComfyUI MODELS_DIR.
 MODEL_TYPE_DIRS = {
     "checkpoint": ("Checkpoint", "checkpoints"),
+    "diffusionmodels": ("Diffusion Models","diffusion_models"),
+    "Unet": ("Unet", "Unet"),
     "lora": ("Lora", "loras"),
     "locon": ("LoCon", "loras"), # Often grouped with LORAs
     "lycoris": ("LyCORIS", "loras"), # Sometimes grouped with LORAs
