@@ -6,6 +6,9 @@
 # This file needs to pass more info (model_info, version_info, primary_file)
 # to the DownloadManager.
 # ================================================
+# Change log:
+#       majorchuckles: Changed the search for the civitai items from hits to items in the response
+
 import asyncio
 from typing import Any, Dict, Optional
 import server # ComfyUI server instance
@@ -788,10 +791,11 @@ async def route_search_models(request):
         sort = data.get("sort", "Most Downloaded") # Frontend display value
         # Make period optional or remove if not supported by Meili sort directly
         # period = data.get("period", "AllTime")
-        limit = int(data.get("limit", 20))
+        limit = int(data.get("limit", 0)) # Changing to show more in the display because why not - majorchuckles
         page = int(data.get("page", 1))
         api_key = data.get("api_key", "") # Keep for potential future use or different endpoints
         nsfw = data.get("nsfw", None) # Expect Boolean or None
+        nextPage = data.get('nextPage', "") # expecting the next Cursor Link - majorchuckles
 
         if not query and not model_type_keys and not base_model_filters:
              raise web.HTTPBadRequest(reason="Search requires a query or at least one filter (type or base model).")
@@ -826,6 +830,7 @@ async def route_search_models(request):
         # --- Call the New API Method ---
         print(f"[Server Search] Meili: query='{query if query else '<none>'}', types={api_types_filter or 'Any'}, baseModels={valid_base_models or 'Any'}, sort={sort}, nsfw={nsfw}, limit={limit}, page={page}")
 
+        print(f"Next Page: {nextPage}")
         # Call the new search method
         meili_results = api.search_models_meili(
              query=query or None, # Meili handles empty query if filters exist
@@ -834,65 +839,67 @@ async def route_search_models(request):
              sort=sort, # Pass the frontend value, mapping happens inside search_models_meili
              limit=limit,
              page=page,
-             nsfw=nsfw
+             nsfw=nsfw,
+             nextPage=nextPage # Added for the next page feature
         )
-
+      
         # Handle API error response from CivitaiAPI helper
         if meili_results and isinstance(meili_results, dict) and "error" in meili_results:
              status_code = meili_results.get("status_code", 500) or 500
              reason = f"Civitai API Meili Search Error: {meili_results.get('details', meili_results.get('error', 'Unknown error'))}"
              raise web.HTTPException(reason=reason, status=status_code, body=json.dumps(meili_results))
 
-        # --- Process Meili Response for Frontend ---
+        # --- Process Response for Frontend ---
         if meili_results and isinstance(meili_results, dict) and "hits" in meili_results:
-              processed_items = []
-              image_base_url = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7QA" # Base URL for images
+            processed_items = []
+            image_base_url = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7QA" # Base URL for images 
 
-              for hit in meili_results.get("hits", []):
-                   if not isinstance(hit, dict): continue # Skip invalid hits
+            for hit in meili_results.get("hits", []):
+                if not isinstance(hit, dict): continue # Skip invalid hits
+                thumbnail_url = None
+                # Get thumbnail from images array (prefer first image)
+                version = next(iter(hit.get("modelVersions", [])), None) # Getting this for later as well but we also need for images - majorchuckles
+                images = version.get("images",[]) # Getting the images from the version - majorchuckles
+                if images and isinstance(images, list) and len(images) > 0:
+                    first_image = images[0]
+                    # Ensure first image is a dict with a 'url' field
+                    if isinstance(first_image, dict) and first_image.get("url"):
+                        image_id = first_image["url"]
+                        # Construct URL with a default width (e.g., 256 or 450)
+                        thumbnail_url = f"{image_base_url}/{image_id}/width=256" # Adjust width as needed
 
-                   thumbnail_url = None
-                   # Get thumbnail from images array (prefer first image)
-                   images = hit.get("images")
-                   if images and isinstance(images, list) and len(images) > 0:
-                       first_image = images[0]
-                       # Ensure first image is a dict with a 'url' field
-                       if isinstance(first_image, dict) and first_image.get("url"):
-                           image_id = first_image["url"]
-                           # Construct URL with a default width (e.g., 256 or 450)
-                           thumbnail_url = f"{image_base_url}/{image_id}/width=256" # Adjust width as needed
+                # Extract latest version info (Meili response includes 'version' object for the primary version)
+                latest_version_info = hit.get("modelVersions", {}) or {} # Ensure it's a dict
 
-                   # Extract latest version info (Meili response includes 'version' object for the primary version)
-                   latest_version_info = hit.get("version", {}) or {} # Ensure it's a dict
+                # Prepare item structure for frontend (can pass raw hit + extras, or build a specific structure)
+                # Let's pass the raw `hit` and add the `thumbnailUrl` and potentially other processed fields.
+                hit['thumbnailUrl'] = thumbnail_url # Add processed thumbnail URL directly to the hit object
+                hit['version'] = version # Adding main version from first one in the list. Need for output - majorchuckles
+                # Optional: Add more processed fields if needed, e.g., formatted stats
+                # hit['processedStats'] = { ... }
+                processed_items.append(hit)
 
-                   # Prepare item structure for frontend (can pass raw hit + extras, or build a specific structure)
-                   # Let's pass the raw `hit` and add the `thumbnailUrl` and potentially other processed fields.
-                   hit['thumbnailUrl'] = thumbnail_url # Add processed thumbnail URL directly to the hit object
-
-                   # Optional: Add more processed fields if needed, e.g., formatted stats
-                   # hit['processedStats'] = { ... }
-
-                   processed_items.append(hit)
-
-              # --- Calculate Pagination Info ---
-              total_hits = meili_results.get("estimatedTotalHits", 0)
-              current_page = page # Use the requested page number
-              total_pages = math.ceil(total_hits / limit) if limit > 0 else 0
-
-              # --- Return Structure for Frontend ---
-              response_data = {
-                  "items": processed_items, # The array of processed hits
-                  "metadata": {
-                      "totalItems": total_hits,
-                      "currentPage": current_page,
-                      "pageSize": limit, # The limit used for the request
-                      "totalPages": total_pages,
-                      # Meili provides offset, limit, processingTimeMs which could also be passed if useful
-                      "meiliProcessingTimeMs": meili_results.get("processingTimeMs"),
-                      "meiliOffset": meili_results.get("offset"),
-                  }
-              }
-              return web.json_response(response_data)
+            # --- Calculate Pagination Info ---
+            total_hits = len(processed_items) * (1 + page) # Changed to a legnth as the other was broken af - majorchuckles
+            current_page = page # Use the requested page number
+            total_pages = math.ceil(total_hits / limit) if limit > 0 else 0
+    
+            # --- Return Structure for Frontend ---
+            response_data = {
+                "items": processed_items, # The array of processed hits
+                "metadata": {
+                    "totalItems": total_hits,
+                    "currentPage": current_page,
+                    "pageSize": limit, # The limit used for the request
+                    "totalPages": total_pages,
+                    # Meili provides offset, limit, processingTimeMs which could also be passed if useful
+                    "meiliProcessingTimeMs": meili_results.get("processingTimeMs"),
+                    "meiliOffset": meili_results.get("offset"),
+                    "nextPage": meili_results.get("nextPage")
+                }
+            }
+            print(f"Sending successful return")
+            return web.json_response(response_data)
         else:
              # Handle unexpected format from API or empty results
              print(f"[Server Search] Warning: Unexpected Meili search result format or empty hits: {meili_results}")

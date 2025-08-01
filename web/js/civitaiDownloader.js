@@ -278,7 +278,7 @@ class CivitaiDownloaderUI {
             numConnections: 1,
             defaultModelType: 'checkpoint',
             autoOpenStatusTab: true,
-            searchResultLimit: 10, // Added default
+            searchResultLimit: 10, // Added default - Changed the limit to match what you wanted for Consistent Limit - majorchuckles
             // Add other future settings here with defaults
         };
     }
@@ -883,8 +883,10 @@ class CivitaiDownloaderUI {
             const button = event.target.closest('.civitai-page-button');
              if (button && !button.disabled) {
                  const page = parseInt(button.dataset.page, 10);
+                 const nextPage = button.dataset.nextPage || "";
                  if (page && page !== this.searchPagination.currentPage) {
                      this.searchPagination.currentPage = page;
+                     this.searchPagination.nextPage = nextPage;
                      this.handleSearchSubmit();
                  }
              }
@@ -1178,6 +1180,7 @@ class CivitaiDownloaderUI {
         this.searchSubmitButton.textContent = 'Searching...';
         this.searchResultsContainer.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Searching...</p>';
         this.searchPaginationContainer.innerHTML = '';
+        this.searchPaginationContainer.nextPage = '';
 
         // No need for separate validation here, done in event listener
 
@@ -1192,6 +1195,7 @@ class CivitaiDownloaderUI {
             limit: this.searchPagination.limit,
             page: this.searchPagination.currentPage,
             api_key: this.settings.apiKey,
+            nextPage: this.searchPagination.nextPage
         };
 
         try {
@@ -1598,26 +1602,29 @@ class CivitaiDownloaderUI {
         items.forEach(hit => {
             // --- Safely extract data from Meili hit object ---
             const modelId = hit.id;
+            console.warn('Processing ', modelId)
             if (!modelId) {
                 console.warn("Skipping search result with missing ID:", hit);
                 return; // Skip if essential ID is missing
             }
-            const creator = hit.user?.username || 'Unknown Creator';
+            const creator = hit.creator?.username || 'Unknown Creator';
             const modelName = hit.name || 'Untitled Model';
             const modelTypeApi = hit.type || 'N/A'; // API Type (e.g., LORA, Checkpoint)
-            const stats = hit.metrics || {}; // Top-level metrics
-            const tags = hit.tags?.map(t => t.name) || []; // Extract just the tag names
+            const stats = hit.stats || {}; // Top-level metrics (changed from hit.metrics)
+            const tags = hit.tags?.forEach(t => t) || []; // Extract just the tag names | Changed to pull from a list because that is all it is
 
             // Thumbnail URL (pre-processed by backend)
             const thumbnailUrl = hit.thumbnailUrl || placeholder;
-            const thumbnailType = hit.images[0].type
+            const thumbnailType = hit.thumbnailType || "image";
 
             // --- Version Info ---
-            const allVersions = hit.versions || []; // Array of all available versions
+            // Changed all versions to model versions and no main version
+            const allVersions = hit.modelVersions || []; // Array of all available versions
             const primaryVersion = hit.version || (allVersions.length > 0 ? allVersions[0] : {}); // Primary version details provided directly, fallback to first in array
             const primaryVersionId = primaryVersion.id;
             const primaryBaseModel = primaryVersion.baseModel || 'N/A'; // Base model from primary version
 
+            console.warn("Processed Main info")
             // Get unique base models across *all* versions for display (more comprehensive)
             const uniqueBaseModels = allVersions.length > 0
                 ? [...new Set(allVersions.map(v => v.baseModel).filter(Boolean))]
@@ -1626,7 +1633,7 @@ class CivitaiDownloaderUI {
 
             // --- Latest Update Date ---
             let lastUpdatedFormatted = 'N/A';
-            const publishedAt = hit.publishedAt; // Use publishedAt from main hit
+            const publishedAt = baseModelsDisplay.length > 0 ? baseModelsDisplay[0].publishedAt : 'N/A'; // Use publishedAt from main hit - update to pull from the modelVersions
             if (publishedAt) {
                 try {
                     const date = new Date(publishedAt);
@@ -1640,6 +1647,7 @@ class CivitaiDownloaderUI {
                 }
             }
 
+            console.warn("Processed Versions and Date")
             // --- Create List Item ---
             const listItem = document.createElement('div');
             listItem.className = 'civitai-search-item';
@@ -1827,13 +1835,14 @@ class CivitaiDownloaderUI {
         this.searchPagination.totalItems = totalItems;
 
         const fragment = document.createDocumentFragment();
-        const maxButtons = 5; // Max number page buttons (e.g., 1 ... 4 5 6 ... 10)
+        const maxButtons = 1; // Max number page buttons (e.g., 1 ... 4 5 6 ... 10)
 
         // Helper to create buttons (reusable)
-        const createButton = (text, page, isDisabled = false, isCurrent = false) => {
+        const createButton = (text, page, isDisabled = true, isCurrent = false) => {
             const button = document.createElement('button');
             // Use specific classes for styling and identification
             button.className = `civitai-button small civitai-page-button ${isCurrent ? 'primary active' : ''}`;
+            button.dataset.nextPage = metadata.nextPage || "";
             button.dataset.page = page;
             button.disabled = isDisabled;
             button.innerHTML = text; // Allows HTML entities like &laquo;
@@ -1842,7 +1851,7 @@ class CivitaiDownloaderUI {
         };
 
         // --- Previous Button ---
-        fragment.appendChild(createButton('&laquo; Prev', currentPage - 1, currentPage === 1));
+        fragment.appendChild(createButton('&laquo; Prev', currentPage - 1, true, currentPage === 1));
 
         // --- Page Number Buttons Logic ---
         let startPage, endPage;
@@ -1882,7 +1891,7 @@ class CivitaiDownloaderUI {
 
         // Add the calculated range of page number buttons
         for (let i = startPage; i <= endPage; i++) {
-            fragment.appendChild(createButton(i.toString(), i, false, i === currentPage));}
+            fragment.appendChild(createButton(i.toString(), i, true, i === currentPage));}
 
         // Add Ellipsis and Last page button if needed
         if (endPage < totalPages) {
