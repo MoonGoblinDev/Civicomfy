@@ -46,7 +46,7 @@ class CivitaiAPI:
                 allow_redirects=allow_redirects,
                 timeout=timeout
             )
-            print(f"Request URL: {response.url}")
+
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
 
             if stream:
@@ -142,7 +142,7 @@ class CivitaiAPI:
                         allowDerivatives: Optional[bool] = None,
                         allowDifferentLicenses: Optional[bool] = None,
                         allowCommercialUse: Optional[str] = None,
-                        nextPage: Optional[str] = None,) -> Optional[Dict[str, Any]]:
+                        nextPage: Optional[str] = None,) -> Optional[Dict[str, Any]]: # New parameter to handle the Cursor tokens in the API - majorchuckles
 
         
         # According to API docs, should use the standard models endpoint instead of Meilisearch
@@ -169,8 +169,8 @@ class CivitaiAPI:
 
         # Build base models
         if base_models and isinstance(base_models, list) and len(base_models) > 0:
-            base_model_filters = [f'{bm}' for bm in base_models]
-            params["baseModels"] = '&'.join(base_model_filters)
+            base_model_filters = [f'{bm}' for bm in base_models] # Changed as we do not need the other filtering to go with this - majorchuckles
+            params["baseModels"] = '&'.join(base_model_filters) # Formatted for parameterization - majorchuckles
         
         # Add sort if it maps to an API-supported value
         if sort in sort_mapping and sort_mapping[sort]:
@@ -210,7 +210,7 @@ class CivitaiAPI:
         if allowCommercialUse:
             params["allowCommercialUse"] = allowCommercialUse
         
-        # Build parameter for nextCursor
+        # Build parameter for cursor parameter - majorchuckles
         if nextPage:
             params['cursor'] = nextPage
 
@@ -222,8 +222,8 @@ class CivitaiAPI:
             if isinstance(result, dict) and "error" in result:
                 return result
             
-            # Build estimated total since there is not a good way to do so with the current infra in the code - majorchuckles
-            # Need to rebuild the JS to have a Next button and not numbered. Not the best at JS so right now I will just make it work with what we have. 
+            # Build estimated total since the API says it is suppose to have a totalItems but never generates - majorchuckles
+            # Need to rebuild the JS to have a Next button only and not numbered. Not the best at JS so right now I will just make it work with what we have. 
             total_hits = result["metadata"].get("nextPage", None)
             if total_hits:
                 estimatedTotalHits = limit * (page + 1)
@@ -234,7 +234,7 @@ class CivitaiAPI:
                     "hits": result["items"],
                     "limit": limit,
                     "offset": (page - 1) * limit,
-                    "estimatedTotalHits": estimatedTotalHits,
+                    "estimatedTotalHits": result["metadata"].get("totalItems", estimatedTotalHits), # Support to be a totalItems field based on API docs but never can get it to show so build in redundancy - majorchuckles
                     "processingTimeMs": 0,  # Not provided by API
                     "query": query,
                     "nextPage": result["metadata"].get("nextCursor", "") # Got lazy and didn't want to change the name of the variables. - majorchuckles

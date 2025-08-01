@@ -278,7 +278,7 @@ class CivitaiDownloaderUI {
             numConnections: 1,
             defaultModelType: 'checkpoint',
             autoOpenStatusTab: true,
-            searchResultLimit: 10, // Added default - Changed the limit to match what you wanted for Consistent Limit - majorchuckles
+            searchResultLimit: 10, // Added default
             // Add other future settings here with defaults
         };
     }
@@ -883,10 +883,10 @@ class CivitaiDownloaderUI {
             const button = event.target.closest('.civitai-page-button');
              if (button && !button.disabled) {
                  const page = parseInt(button.dataset.page, 10);
-                 const nextPage = button.dataset.nextPage || "";
+                 const nextPage = button.dataset.nextPage || ""; // Variable for the whole thing
                  if (page && page !== this.searchPagination.currentPage) {
                      this.searchPagination.currentPage = page;
-                     this.searchPagination.nextPage = nextPage;
+                     this.searchPagination.nextPage = nextPage; // Set the parameter for the cursor values we need to pass - majorchuckles
                      this.handleSearchSubmit();
                  }
              }
@@ -1180,7 +1180,7 @@ class CivitaiDownloaderUI {
         this.searchSubmitButton.textContent = 'Searching...';
         this.searchResultsContainer.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Searching...</p>';
         this.searchPaginationContainer.innerHTML = '';
-        this.searchPaginationContainer.nextPage = '';
+        this.searchPaginationContainer.nextPage = ''; // New cursor values - majorchuckles
 
         // No need for separate validation here, done in event listener
 
@@ -1195,7 +1195,7 @@ class CivitaiDownloaderUI {
             limit: this.searchPagination.limit,
             page: this.searchPagination.currentPage,
             api_key: this.settings.apiKey,
-            nextPage: this.searchPagination.nextPage
+            nextPage: this.searchPagination.nextPage // Curosor values - majorchuckles
         };
 
         try {
@@ -1624,10 +1624,9 @@ class CivitaiDownloaderUI {
             const primaryVersionId = primaryVersion.id;
             const primaryBaseModel = primaryVersion.baseModel || 'N/A'; // Base model from primary version
 
-            console.warn("Processed Main info")
             // Get unique base models across *all* versions for display (more comprehensive)
             const uniqueBaseModels = allVersions.length > 0
-                ? [...new Set(allVersions.map(v => v.baseModel).filter(Boolean))]
+                ? [...new Set(allVersions.map(v => v.baseModel).filter(Boolean))] // Had to change to the new values in API - majorchuckles
                 : (primaryBaseModel !== 'N/A' ? [primaryBaseModel] : []); // Fallback to primary if array empty
             const baseModelsDisplay = uniqueBaseModels.length > 0 ? uniqueBaseModels.join(', ') : 'N/A';
 
@@ -1647,7 +1646,6 @@ class CivitaiDownloaderUI {
                 }
             }
 
-            console.warn("Processed Versions and Date")
             // --- Create List Item ---
             const listItem = document.createElement('div');
             listItem.className = 'civitai-search-item';
@@ -1851,7 +1849,7 @@ class CivitaiDownloaderUI {
         };
 
         // --- Previous Button ---
-        fragment.appendChild(createButton('&laquo; Prev', currentPage - 1, true, currentPage === 1));
+        fragment.appendChild(createButton('&laquo; Prev', currentPage - 1, true, currentPage === 1)); // Disabled prev button as it will not work - majorchuckles
 
         // --- Page Number Buttons Logic ---
         let startPage, endPage;
@@ -1891,7 +1889,7 @@ class CivitaiDownloaderUI {
 
         // Add the calculated range of page number buttons
         for (let i = startPage; i <= endPage; i++) {
-            fragment.appendChild(createButton(i.toString(), i, true, i === currentPage));}
+            fragment.appendChild(createButton(i.toString(), i, true, i === currentPage));} // Disabled any pagination button - majorchuckles
 
         // Add Ellipsis and Last page button if needed
         if (endPage < totalPages) {

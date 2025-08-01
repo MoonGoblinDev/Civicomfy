@@ -795,7 +795,7 @@ async def route_search_models(request):
         page = int(data.get("page", 1))
         api_key = data.get("api_key", "") # Keep for potential future use or different endpoints
         nsfw = data.get("nsfw", None) # Expect Boolean or None
-        nextPage = data.get('nextPage', "") # expecting the next Cursor Link - majorchuckles
+        nextPage = data.get('nextPage', "") # expecting the next Cursor set for link building - majorchuckles
 
         if not query and not model_type_keys and not base_model_filters:
              raise web.HTTPBadRequest(reason="Search requires a query or at least one filter (type or base model).")
@@ -830,7 +830,6 @@ async def route_search_models(request):
         # --- Call the New API Method ---
         print(f"[Server Search] Meili: query='{query if query else '<none>'}', types={api_types_filter or 'Any'}, baseModels={valid_base_models or 'Any'}, sort={sort}, nsfw={nsfw}, limit={limit}, page={page}")
 
-        print(f"Next Page: {nextPage}")
         # Call the new search method
         meili_results = api.search_models_meili(
              query=query or None, # Meili handles empty query if filters exist
@@ -840,7 +839,7 @@ async def route_search_models(request):
              limit=limit,
              page=page,
              nsfw=nsfw,
-             nextPage=nextPage # Added for the next page feature
+             nextPage=nextPage # Added for the next page feature - majorchuckles
         )
       
         # Handle API error response from CivitaiAPI helper
@@ -898,7 +897,6 @@ async def route_search_models(request):
                     "nextPage": meili_results.get("nextPage")
                 }
             }
-            print(f"Sending successful return")
             return web.json_response(response_data)
         else:
              # Handle unexpected format from API or empty results
