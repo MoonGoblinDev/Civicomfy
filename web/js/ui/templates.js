@@ -145,14 +145,13 @@ export function modalTemplate(settings = {}) {
       <div id="civitai-confirm-clear-modal" class="civitai-confirmation-modal">
         <div class="civitai-confirmation-modal-content">
           <h4>Confirm Clear History</h4>
-          <p>Are you sure you want to clear all download history?</p>
-          <div class="civitai-confirmation-actions">
+          <p>Are you sure you want to clear the download history? This action cannot be undone.</p>
+          <div class="civitai-confirmation-modal-actions">
+            <button id="civitai-confirm-clear-no" class="civitai-button secondary">Cancel</button>
             <button id="civitai-confirm-clear-yes" class="civitai-button danger">Confirm Clear</button>
-            <button id="civitai-confirm-clear-no" class="civitai-button">Cancel</button>
           </div>
         </div>
       </div>
     </div>
   `;
 }
-

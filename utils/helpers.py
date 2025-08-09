@@ -5,6 +5,8 @@ import os
 import urllib.parse
 import re 
 from pathlib import Path
+from typing import Optional, List, Dict, Any
+
 import folder_paths 
 
 # Import config values needed here
@@ -208,30 +210,48 @@ def sanitize_filename(filename: str, default_filename: str = "downloaded_model")
          print(f"Warning: Sanitized filename truncated to {max_len} characters.")
 
     return sanitized
-    """Creates a simple placeholder image if Pillow is available."""
-    target_dir = os.path.dirname(path)
-    if not os.path.exists(target_dir):
-         try:
-              os.makedirs(target_dir, exist_ok=True)
-         except OSError as e:
-              print(f"Error creating directory for placeholder image '{target_dir}': {e}")
-              return # Cannot proceed
+    
+def select_primary_file(files: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Selects the best file from a list of files based on a heuristic.
+    Prefers primary, then safetensors, then pruned, etc.
+    Returns the selected file dictionary or None.
+    """
+    if not files or not isinstance(files, list):
+        return None
 
-    if os.path.exists(path):
-        return
-    try:
-        from PIL import Image, ImageDraw
-        img = Image.new('RGB', (200, 200), color = (50, 50, 50)) # Slightly larger size?
-        # Optional: Add text?
-        try:
-             d = ImageDraw.Draw(img)
-             # Simple text, requires no font file usually
-             d.text((10,90), "Placeholder", fill=(150,150,150))
-        except Exception: pass # Ignore text drawing errors silently
+    # First, try to find a file explicitly marked as "primary" with a valid download URL
+    primary_marked_file = next((f for f in files if isinstance(f, dict) and f.get("primary") and f.get('downloadUrl')), None)
+    if primary_marked_file:
+        return primary_marked_file
 
-        img.save(path)
-        print(f"[Helper] Created placeholder image: {path}")
-    except ImportError:
-        print("[Helper] Pillow not found, cannot create placeholder image. Please install with: pip install Pillow")
-    except Exception as e:
-        print(f"[Helper] Error creating placeholder image at {path}: {e}")
+    # If no primary file is marked, sort all available files using a heuristic
+    def sort_key(file_obj):
+        if not isinstance(file_obj, dict): return 99
+        if not file_obj.get('downloadUrl'): return 98 # Deprioritize files without URL
+
+        name_lower = file_obj.get("name", "").lower()
+        meta = file_obj.get("metadata", {}) or {}
+        format_type = meta.get("format", "").lower()
+        size_type = meta.get("size", "").lower()
+        
+        # Fallback to file extension if format metadata missing
+        is_safetensor = ".safetensors" in name_lower or format_type == "safetensor"
+        is_pickle = ".ckpt" in name_lower or ".pt" in name_lower or format_type == "pickletensor"
+        is_pruned = size_type == "pruned"
+
+        if is_safetensor and is_pruned: return 0
+        if is_safetensor: return 1
+        if is_pickle and is_pruned: return 2
+        if is_pickle: return 3
+        # Prioritize model files over others like VAEs if type is available
+        if file_obj.get("type") == "Model": return 4
+        if file_obj.get("type") == "Pruned Model": return 5
+        return 10 # Other types last
+
+    valid_files = [f for f in files if isinstance(f, dict) and f.get("downloadUrl")]
+    if not valid_files:
+        return None
+        
+    sorted_files = sorted(valid_files, key=sort_key)
+    return sorted_files[0]

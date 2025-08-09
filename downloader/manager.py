@@ -1,11 +1,11 @@
 # ================================================
-# File: downloader/manager.py (Updated)
+# File: downloader/manager.py
 # ================================================
 import threading
 import time
 import datetime
 import os
-import json                     # <--- Added
+import json                     
 import requests
 import subprocess
 import platform
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 from ..config import (
     MAX_CONCURRENT_DOWNLOADS, DOWNLOAD_HISTORY_LIMIT, DEFAULT_CONNECTIONS,
-    METADATA_SUFFIX, PREVIEW_SUFFIX, METADATA_DOWNLOAD_TIMEOUT, PLUGIN_ROOT # <--- Added PLUGIN_ROOT
+    METADATA_SUFFIX, PREVIEW_SUFFIX, METADATA_DOWNLOAD_TIMEOUT, PLUGIN_ROOT 
 )
 try:
     from folder_paths import get_directory_by_type, get_valid_path, base_path
