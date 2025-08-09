@@ -260,9 +260,30 @@ async def route_get_model_details(request):
                  version_description_html = "<p><em>Description is empty.</em></p>"
 
         # File details
+        def _guess_precision(file_dict):
+            try:
+                name = (file_dict.get('name') or '').lower()
+                meta = (file_dict.get('metadata') or {})
+                for key in ('precision', 'dtype', 'fp'):
+                    val = (meta.get(key) or '').lower()
+                    if val:
+                        return val
+                if 'fp8' in name or 'int8' in name or '8bit' in name or '8-bit' in name:
+                    return 'fp8'
+                if 'fp16' in name or 'bf16' in name or '16bit' in name or '16-bit' in name:
+                    return 'fp16'
+                if 'fp32' in name or '32bit' in name or '32-bit' in name:
+                    return 'fp32'
+            except Exception:
+                pass
+            return 'N/A'
+
         file_name = primary_file.get('name', 'N/A')
         file_size_kb = primary_file.get('sizeKB', 0)
-        file_format = primary_file.get('metadata', {}).get('format', 'N/A') # e.g., SafeTensor, PickleTensor
+        _meta = (primary_file.get('metadata') or {})
+        file_format = _meta.get('format', 'N/A') # e.g., SafeTensor, PickleTensor
+        file_model_size = _meta.get('size', 'N/A') # e.g., Pruned/Full
+        file_precision = _guess_precision(primary_file)
 
         thumbnail_url = None
         images = version_info.get("images") # Get the images list from the version info
@@ -285,6 +306,24 @@ async def route_get_model_details(request):
              placeholder_filename = os.path.basename(PLACEHOLDER_IMAGE_PATH) if PLACEHOLDER_IMAGE_PATH else "placeholder.jpeg"
              thumbnail_url = f"./{placeholder_filename}" # Relative path for JS
 
+        # Build minimal files listing for selection in UI/clients
+        files_list = []
+        vfiles = version_info.get("files", []) or []
+        if isinstance(vfiles, list):
+            for f in vfiles:
+                if not isinstance(f, dict):
+                    continue
+                _fmeta = (f.get("metadata") or {})
+                files_list.append({
+                    "id": f.get("id"),
+                    "name": f.get("name"),
+                    "size_kb": f.get("sizeKB"),
+                    "format": _fmeta.get("format"),
+                    "model_size": _fmeta.get("size"),
+                    "precision": _guess_precision(f),
+                    "downloadable": bool(f.get("downloadUrl")),
+                })
+
         # --- Return curated data ---
         return web.json_response({
             "success": True,
@@ -306,7 +345,10 @@ async def route_get_model_details(request):
                 "name": file_name,
                 "size_kb": file_size_kb,
                 "format": file_format,
+                "model_size": file_model_size,
+                "precision": file_precision,
             },
+            "files": files_list,
             "thumbnail_url": thumbnail_url,
             # Optionally include basic version info like baseModel
             "base_model": version_info.get("baseModel", "N/A"),
@@ -347,6 +389,9 @@ async def route_download_model(request):
         model_type_key = data.get("model_type", "checkpoint").lower() # Internal key for saving dir
         req_version_id = data.get("model_version_id") # Optional explicit version ID
         custom_filename = data.get("custom_filename", "").strip()
+        # Optional file selection overrides
+        req_file_id = data.get("file_id")
+        req_file_name_contains = data.get("file_name_contains", "").strip()
         num_connections = int(data.get("num_connections", 4))
         force_redownload = bool(data.get("force_redownload", False))
         api_key = data.get("api_key", "") # Get API key from frontend settings
@@ -485,8 +530,36 @@ async def route_download_model(request):
         if not files:
              raise web.HTTPNotFound(reason=f"Version ID {target_version_id} ({version_info.get('name', 'N/A')}) has no files listed in API response.")
 
-        # Find primary file or fallback (prefer safetensors with valid URL)
-        primary_file = next((f for f in files if isinstance(f, dict) and f.get("primary") and f.get('downloadUrl')), None)
+        # If a specific file was requested by ID, honor it first
+        primary_file = None
+        if req_file_id is not None:
+            try:
+                # IDs in API are ints; accept stringified ints too
+                req_file_id_int = int(str(req_file_id).strip())
+                primary_file = next((f for f in files if isinstance(f, dict) and f.get("id") == req_file_id_int and f.get('downloadUrl')), None)
+                if not primary_file:
+                    raise web.HTTPNotFound(reason=f"File with id {req_file_id_int} not found or not downloadable in version {target_version_id}.")
+            except ValueError:
+                raise web.HTTPBadRequest(reason=f"Invalid 'file_id' value: {req_file_id}")
+
+        # If not selected by ID, try selecting by partial name match (e.g., 'fp16', 'fp8')
+        if primary_file is None and req_file_name_contains:
+            needle = req_file_name_contains.lower()
+            def name_matches(f):
+                if not isinstance(f, dict):
+                    return False
+                name = (f.get("name") or "").lower()
+                meta = (f.get("metadata") or {})
+                fmt = (meta.get("format") or "").lower()
+                size_tag = (meta.get("size") or "").lower()
+                return (needle in name) or (needle in fmt) or (needle in size_tag)
+            candidates = [f for f in files if f.get('downloadUrl') and name_matches(f)]
+            primary_file = candidates[0] if candidates else None
+
+        # If still not selected, fall back to primary flag or heuristic
+        if primary_file is None:
+            # Find primary file or fallback (prefer safetensors with valid URL)
+            primary_file = next((f for f in files if isinstance(f, dict) and f.get("primary") and f.get('downloadUrl')), None)
 
         if not primary_file:
             # Sort by type preference (safetensors > pickle), then maybe size?
@@ -665,6 +738,29 @@ async def route_download_model(request):
         known_size_bytes = api_size_bytes if api_size_bytes > 0 else None
 
         # --- Prepare full download_info dict ---
+        # Derive extra display attributes for UI/history
+        def _guess_precision_name(fobj):
+            try:
+                nm = (fobj.get('name') or '').lower()
+                meta = (fobj.get('metadata') or {})
+                for key in ('precision', 'dtype', 'fp'):
+                    val = (meta.get(key) or '').lower()
+                    if val:
+                        return val
+                if 'fp8' in nm or 'int8' in nm or '8bit' in nm or '8-bit' in nm:
+                    return 'fp8'
+                if 'fp16' in nm or 'bf16' in nm or '16bit' in nm or '16-bit' in nm:
+                    return 'fp16'
+                if 'fp32' in nm or '32bit' in nm or '32-bit' in nm:
+                    return 'fp32'
+            except Exception:
+                pass
+            return None
+
+        primary_meta = (primary_file.get('metadata') or {})
+        ui_file_precision = _guess_precision_name(primary_file)
+        ui_file_model_size = primary_meta.get('size')  # e.g., Pruned/Full
+        ui_file_format = primary_meta.get('format')
         # Pass all necessary info for download, metadata, and preview saving
         download_info = {
             # Core download params
@@ -679,6 +775,10 @@ async def route_download_model(request):
             "version_name": version_name,
             "thumbnail": thumbnail_url, # URL for UI thumbnail preview
             "model_type": model_type_key, # The category/directory key used for saving
+            # Extra file attributes for UI lists
+            "file_precision": ui_file_precision,
+            "file_model_size": ui_file_model_size,
+            "file_format": ui_file_format,
             # Metadata for .cminfo.json and preview saving
             "civitai_model_id": target_model_id,
             "civitai_version_id": target_version_id,

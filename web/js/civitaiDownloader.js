@@ -1,5 +1,11 @@
 import { app } from "../../../scripts/app.js";
-import { api } from "../../../scripts/api.js";
+import { addCssLink } from "./utils/dom.js";
+import { setCookie, getCookie } from "./utils/cookies.js";
+import { CivitaiDownloaderAPI } from "./api/civitai.js";
+import { Feedback } from "./ui/feedback.js";
+import { renderSearchResults as renderSearchResultsExternal } from "./ui/searchRenderer.js";
+import { renderDownloadList as renderDownloadListExternal } from "./ui/statusRenderer.js";
+import { renderDownloadPreview as renderDownloadPreviewExternal } from "./ui/previewRenderer.js";
 
 console.log("Loading Civicomfy UI...");
 
@@ -9,44 +15,7 @@ const CSS_URL = `./civitaiDownloader.css`;
 const PLACEHOLDER_IMAGE_URL = `/extensions/Civicomfy/images/placeholder.jpeg`;
 const SETTINGS_COOKIE_NAME = 'civitaiDownloaderSettings'; 
 
-// --- Cookie Helper Functions ---
-function setCookie(name, value, days) {
-    let expires = "";
-    if (days) {
-        const date = new Date();
-        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
-        expires = "; expires=" + date.toUTCString();
-    }
-    document.cookie = name + "=" + (value || "") + expires + "; path=/; SameSite=Lax";
-}
-
-function getCookie(name) {
-    const nameEQ = name + "=";
-    const ca = document.cookie.split(';');
-    for (let i = 0; i < ca.length; i++) {
-        let c = ca[i];
-        while (c.charAt(0) == ' ') c = c.substring(1, c.length);
-        if (c.indexOf(nameEQ) == 0) {
-            const value = c.substring(nameEQ.length, c.length);
-            return value;
-        }
-    }
-    return null;
-}
-
-// --- CSS Injection ---
-function addCssLink() {
-    // Check if already added
-    if (document.getElementById('civitai-downloader-styles')) return;
-
-    const cssPath = import.meta.resolve(CSS_URL);
-	//console.log(cssPath);
-	const $link = document.createElement("link");
-    $link.id = 'civitai-downloader-styles'; // Add ID for checking
-	$link.setAttribute("rel", 'stylesheet');
-	$link.setAttribute("href", cssPath);
-	document.head.appendChild($link);
-}
+// Cookie helpers and CSS injection moved to utils modules
 
 // Add Menu Button to ComfyUI
 function addMenuButton() {
@@ -116,137 +85,7 @@ function addMenuButton() {
     }
 }
 
-// API Interface (No changes needed based on request, assuming previous fixes were good)
-class CivitaiDownloaderAPI {
-    static async _request(endpoint, options = {}) {
-        try {
-            
-            // Add prefix if it doesn't exist
-            const url = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-            const response = await api.fetchApi(url, options); // Use api.fetchApi directly
-
-            if (!response.ok) {
-                let errorData;
-                const status = response.status;
-                const statusText = response.statusText;
-                try {
-                    // Try parsing JSON first
-                    errorData = await response.json();
-                     // Ensure errorData is an object
-                     if (typeof errorData !== 'object' || errorData === null) {
-                        errorData = { detail: String(errorData) }; // Wrap non-object detail
-                    }
-
-                } catch (jsonError) {
-                     // If JSON parsing fails, read response as text
-                    let detailText = await response.text().catch(() => `Status ${status} - Could not read error text`);
-                    errorData = {
-                        error: `HTTP error ${status}`,
-                        details: detailText.substring(0, 500), // Limit length
-                    };
-                 }
-                console.error(`API Error: ${options.method || 'GET'} ${url} -> ${status}`, errorData);
-
-                // Construct a more informative error message
-                const error = new Error(
-                    errorData.error || errorData.reason || `HTTP Error: ${status} ${statusText}`
-                );
-                // Try to extract the most useful detail field
-                error.details = errorData.details || errorData.detail || errorData.error || 'No details provided.';
-                error.status = status;
-
-                throw error;
-            }
-            // Handle empty response body for success codes like 204
-             if (response.status === 204 || response.headers.get('Content-Length') === '0') {
-                return null;
-            }
-            // Assume JSON response for other success codes
-            return await response.json();
-        } catch (error) {
-            // Re-throw the error (could be the custom one created above or a network/parsing error)
-             console.error(`API Request Failed: ${options.method || 'GET'} ${endpoint}`, error);
-             // Ensure it has a user-friendly message if it's not our custom error
-             if (!error.details) {
-                 error.details = error.message;
-             }
-             throw error;
-        }
-    }
-
-    static async downloadModel(params) {
-        return await this._request('/civitai/download', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(params),
-        });
-    }
-
-    static async getModelDetails(params) {
-        return await this._request('/civitai/get_model_details', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(params),
-        });
-    }
-
-    static async getStatus() {
-        return await this._request('/civitai/status');
-    }
-
-    static async cancelDownload(downloadId) {
-        return await this._request('/civitai/cancel', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ download_id: downloadId }),
-        });
-    }
-
-    static async searchModels(params) {
-        return await this._request('/civitai/search', { // Endpoint URL is the same
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(params), // Send new params including base_models
-        });
-    }
-
-    // Add method to fetch base models for the filter dropdown
-    static async getBaseModels() {
-        return await this._request('/civitai/base_models');
-    }
-
-    static async getModelTypes() {
-        return await this._request('/civitai/model_types');
-    }
-
-    static async retryDownload(downloadId) {
-        console.log(`[Civicomfy API] Requesting retry for download ID: ${downloadId}`);
-        return await this._request('/civitai/retry', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ download_id: downloadId }),
-        });
-    }
-
-    static async openPath(downloadId) {
-        console.log(`[Civicomfy API] Requesting open path for download ID: ${downloadId}`);
-        return await this._request('/civitai/open_path', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ download_id: downloadId }),
-        });
-    }
-
-    static async clearHistory() {
-        console.log(`[Civicomfy API] Requesting clear history.`);
-        // No body needed for this request
-        return await this._request('/civitai/clear_history', {
-            method: 'POST', // POST is suitable for actions causing state change
-            headers: { 'Content-Type': 'application/json' },
-            // No body: body: JSON.stringify({}),
-        });
-    }
-}
+// API moved to ./api/civitai.js and imported above
 
 // --- UI Class ---
 class CivitaiDownloaderUI {
@@ -268,6 +107,8 @@ class CivitaiDownloaderUI {
         this.buildModalHTML(); // Creates this.modal element
         this.cacheDOMElements();
         this.setupEventListeners();
+        // Initialize feedback helper (toasts and FontAwesome)
+        this.feedback = new Feedback(this.modal.querySelector('#civitai-toast'));
         // NOTE: Loading settings and populating dropdowns now happens *after* initialization
         // in addMenuButton -> loadAndApplySettings / populateModelTypes
     }
@@ -1031,76 +872,7 @@ class CivitaiDownloaderUI {
         }
     }
 
-    renderDownloadPreview(data) {
-         if (!this.downloadPreviewArea) return;
-         this.ensureFontAwesome(); // Ensure icons are loaded
-         // Safely extract data (similar to renderSearchResults but from the /get_model_details payload)
-         const modelId = data.model_id;
-         const modelName = data.model_name || 'Untitled Model';
-         const creator = data.creator_username || 'Unknown Creator';
-         const modelType = data.model_type || 'N/A';
-         const versionName = data.version_name || 'N/A';
-         const baseModel = data.base_model || 'N/A';
-         const stats = data.stats || {};
-         const descriptionHtml = data.description_html || '<p><em>No description.</em></p>';
-         const version_description_html = data.version_description_html || '<p><em>No description.</em></p>';
-         const fileInfo = data.file_info || {};
-         const thumbnail = data.thumbnail_url || PLACEHOLDER_IMAGE_URL; // Use placeholder if missing
-         const civitaiLink = `https://civitai.com/models/${modelId}${data.version_id ? '?modelVersionId='+data.version_id : ''}`;
-
-         const placeholder = PLACEHOLDER_IMAGE_URL;
-         const onErrorScript = `this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';`;
-
-         // --- Generate HTML (similar to search result item) ---
-         // We can reuse the 'civitai-search-item' class for styling or create a new one. Let's reuse for now.
-         const previewHtml = `
-            <div class="civitai-search-item" style="background-color: var(--comfy-input-bg);"> <!-- Style override for clarity -->
-                <div class="civitai-thumbnail-container">
-                    <img src="${thumbnail}" alt="${modelName} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
-                    <div class="civitai-type-badge">${modelType}</div>
-                </div>
-                <div class="civitai-search-info">
-                    <h4>${modelName} <span style="font-weight: normal; font-size: 0.9em;">by ${creator}</span></h4>
-                    <p style="font-weight: bold;">Version: ${versionName} <span class="base-model-badge" style="margin-left: 5px;">${baseModel}</span></p>
-
-                    <div class="civitai-search-stats" title="Stats: Downloads / Rating (Count) / Likes">
-                        <span title="Downloads"><i class="fas fa-download"></i> ${stats.downloads?.toLocaleString() || 0}</span>
-                        <span title="Likes"><i class="fas fa-thumbs-up"></i> ${stats.likes?.toLocaleString(0) || 0}</span>
-                        <span title="Dislikes"><i class="fas fa-thumbs-down"></i> ${stats.dislikes?.toLocaleString() || 0}</span>
-                        <span title="Buzz"><i class="fas fa-bolt"></i> ${stats.buzz?.toLocaleString() || 0}</span>
-                    </div>
-
-                    <p style="font-weight: bold; margin-top: 10px;">Primary File:</p>
-                    <p style="font-size: 0.9em; color: #ccc;">
-                        Name: ${fileInfo.name || 'N/A'}<br>
-                        Size: ${this.formatBytes(fileInfo.size_kb * 1024) || 'N/A'} <br> <!-- Convert KB to bytes for formatter -->
-                        Format: ${fileInfo.format || 'N/A'}
-                    </p>
-                     <a href="${civitaiLink}" target="_blank" rel="noopener noreferrer" class="civitai-button small" title="Open on Civitai website" style="margin-top: 5px; display: inline-block;">
-                        View on Civitai <i class="fas fa-external-link-alt"></i>
-                    </a>
-
-                </div>
-                </div>
-                <!-- Description Section -->
-                <div style="margin-top: 15px;">
-                     <h5 style="margin-bottom: 5px;">Model Description:</h5>
-                     <div class="model-description-content" style="max-height: 200px; overflow-y: auto; background-color: var(--comfy-input-bg); padding: 10px; border-radius: 4px; font-size: 0.9em; border: 1px solid var(--border-color, #555);">
-                         ${descriptionHtml}
-                     </div>
-                </div>
-                <div style="margin-top: 15px;">
-                     <h5 style="margin-bottom: 5px;">Version Description:</h5>
-                     <div class="model-description-content" style="max-height: 200px; overflow-y: auto; background-color: var(--comfy-input-bg); padding: 10px; border-radius: 4px; font-size: 0.9em; border: 1px solid var(--border-color, #555);">
-                         ${version_description_html}
-                     </div>
-                </div>
-
-         `; // End of previewHtml
-
-         this.downloadPreviewArea.innerHTML = previewHtml;
-
-    }
+    renderDownloadPreview(data) { return renderDownloadPreviewExternal(this, data); }
 
     async handleDownloadSubmit() {
         if(this.settings.apiKey == null || this.settings.apiKey == ""){
@@ -1128,6 +900,15 @@ class CivitaiDownloaderUI {
                 force_redownload: this.forceRedownloadCheckbox.checked,
                 api_key: this.settings.apiKey // Pass API key from current settings state
             };
+
+            // Include a selected file_id from the preview dropdown if present
+            const fileSelectEl = this.modal.querySelector('#civitai-file-select');
+            if (fileSelectEl && fileSelectEl.value) {
+                const fid = parseInt(fileSelectEl.value, 10);
+                if (!Number.isNaN(fid)) {
+                    params.file_id = fid;
+                }
+            }
 
             // Basic validation
             if (isNaN(params.num_connections) || params.num_connections < 1 || params.num_connections > 16) {
@@ -1401,114 +1182,7 @@ class CivitaiDownloaderUI {
     }
 
     renderDownloadList(items, container, emptyMessage) {
-
-         if (!items || items.length === 0) {
-            container.innerHTML = `<p>${emptyMessage}</p>`;
-            return;
-        }
-        const fragment = document.createDocumentFragment();
-
-        items.forEach(item => {
-             const id = item.id || 'unknown-id';
-             const progress = item.progress !== undefined ? Math.max(0, Math.min(100, item.progress)) : 0;
-             const speed = item.speed !== undefined ? Math.max(0, item.speed) : 0;
-             const status = item.status || 'unknown';
-             const size = item.known_size !== undefined && item.known_size !== null ? item.known_size : (item.file_size || 0);
-             const downloadedBytes = size > 0 ? size * (progress / 100) : 0;
-             const errorMsg = item.error || null;
-             const modelName = item.model_name || item.model?.name || 'Unknown Model'; // Safer access
-             const versionName = item.version_name || 'Unknown Version';
-             const filename = item.filename || 'N/A';
-             const addedTime = item.added_time || null;
-             const startTime = item.start_time || null;
-             const endTime = item.end_time || null;
-             const thumbnail = item.thumbnail || PLACEHOLDER_IMAGE_URL;
-             const connectionType = item.connection_type || "N/A";
-
-             let progressBarClass = '';
-             let statusText = status.charAt(0).toUpperCase() + status.slice(1);
-
-             switch(status) {
-                 case 'completed': progressBarClass = 'completed'; break;
-                 case 'failed': progressBarClass = 'failed'; statusText = `Failed`; break; // Shorten status text
-                 case 'cancelled': progressBarClass = 'cancelled'; statusText = `Cancelled`; break; // Shorten status text
-                 case 'downloading': break;
-                 case 'queued': break;
-                 case 'starting': break;
-             }
-
-             const listItem = document.createElement('div');
-             listItem.className = 'civitai-download-item';
-             listItem.dataset.id = id;
-
-             const onErrorScript = `this.onerror=null; this.src='${PLACEHOLDER_IMAGE_URL}'; this.style.backgroundColor='#444';`;
-             const addedTooltip = addedTime ? `data-tooltip="Added: ${new Date(addedTime).toLocaleString()}"` : '';
-             const startedTooltip = startTime ? `data-tooltip="Started: ${new Date(startTime).toLocaleString()}"`: '';
-             const endedTooltip = endTime ? `data-tooltip="Ended: ${new Date(endTime).toLocaleString()}"`: '';
-             const durationTooltip = startTime && endTime ? `data-tooltip="Duration: ${this.formatDuration(startTime, endTime)}"`: '';
-             const filenameTooltip = filename !== 'N/A' ? `title="Filename: ${filename}"` : '';
-              // Limit error tooltip length for performance/display
-             const errorTooltip = errorMsg ? `title="Error Details: ${String(errorMsg).substring(0, 200)}${String(errorMsg).length > 200 ? '...' : ''}"` : '';
-             const connectionInfoHtml = connectionType !== "N/A" ? `<span style="font-size: 0.85em; color: #aaa; margin-left: 10px;">(Conn: ${connectionType})</span>` : '';
-
-             let innerHTML = `
-                <img src="${thumbnail}" alt="thumbnail" class="civitai-download-thumbnail" loading="lazy" onerror="${onErrorScript}">
-                <div class="civitai-download-info">
-                    <strong>${modelName}</strong>
-                    <p>Ver: ${versionName}</p>
-                    <p class="filename" ${filenameTooltip}>${filename}</p>
-                    ${size > 0 ? `<p>Size: ${this.formatBytes(size)}</p>` : ''}
-                    ${errorMsg ? `<p class="error-message" ${errorTooltip}><i class="fas fa-exclamation-triangle"></i> ${String(errorMsg).substring(0, 100)}${String(errorMsg).length > 100 ? '...' : ''}</p>` : ''}
-             `; // Removed 'Error:' prefix from text, added icon
-
-            // Progress Bar and Speed Section
-             if (status === 'downloading' || status === 'starting' || status === 'completed') {
-                 const statusLine = `<div ${durationTooltip} ${endedTooltip}>Status: ${statusText} ${connectionInfoHtml}</div>`;
-                 innerHTML += `
-                    <div class="civitai-progress-container" title="${statusText} - ${progress.toFixed(1)}%">
-                        <div class="civitai-progress-bar ${progressBarClass}" style="width: ${progress}%;">
-                            ${progress > 15 ? progress.toFixed(0)+'%' : ''}
-                        </div>
-                    </div>
-                 `;
-                 const speedText = (status === 'downloading' && speed > 0) ? this.formatSpeed(speed) : '';
-                 const progressText = (status === 'downloading' && size > 0) ? `(${this.formatBytes(downloadedBytes)} / ${this.formatBytes(size)})` : '';
-                 const completedText = status === 'completed' ? '' : ''; // Already shown in status line
-                 const speedProgLine = `<div class="civitai-speed-indicator">${speedText} ${progressText} ${completedText}</div>`;
-                 // Only show speed/progress line if actually downloading or useful
-                  if (status === 'downloading') { innerHTML += speedProgLine; }
-                 innerHTML += statusLine;
-             } else if (status === 'failed' || status === 'cancelled' || status === 'queued') {
-                 innerHTML += `<div class="status-line-simple" ${durationTooltip} ${endedTooltip} ${addedTooltip}>Status: ${statusText} ${connectionInfoHtml}</div>`;
-             } else {
-                 innerHTML += `<div class="status-line-simple">Status: ${statusText} ${connectionInfoHtml}</div>`;
-             }
-            innerHTML += `</div>`; // Close civitai-download-info
-
-             // --- Actions Section (UPDATED) ---
-            innerHTML += `<div class="civitai-download-actions">`;
-            if (status === 'queued' || status === 'downloading' || status === 'starting') {
-                innerHTML += `<button class="civitai-button danger small civitai-cancel-button" data-id="${id}" title="Cancel Download"><i class="fas fa-times"></i></button>`;
-            }
-            // --- Enable Retry Button ---
-            if (status === 'failed' || status === 'cancelled') {
-                // REMOVED disabled attribute and updated title
-                innerHTML += `<button class="civitai-button small civitai-retry-button" data-id="${id}" title="Retry Download"><i class="fas fa-redo"></i></button>`;
-            }
-            // --- Add Open Path Button ---
-            if (status === 'completed') {
-                // ADDED this button
-                innerHTML += `<button class="civitai-button small civitai-openpath-button" data-id="${id}" title="Open Containing Folder"><i class="fas fa-folder-open"></i></button>`;
-            }
-            innerHTML += `</div>`; // Close civitai-download-actions
-
-            listItem.innerHTML = innerHTML;
-            fragment.appendChild(listItem);
-        });
-
-        container.innerHTML = '';
-        container.appendChild(fragment);
-        this.ensureFontAwesome(); // Ensure icons are available after render
+        return renderDownloadListExternal(this, items, container, emptyMessage);
     }
 
     // Helper function to format duration
@@ -1537,11 +1211,8 @@ class CivitaiDownloaderUI {
 
     // Helper function to ensure FontAwesome is loaded
     ensureFontAwesome() {
-        if (!document.querySelector('link[href*="fontawesome"]')) {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'; // Or your preferred FA source
-            document.head.appendChild(link);
+        if (this.feedback && typeof this.feedback.ensureFontAwesome === 'function') {
+            this.feedback.ensureFontAwesome();
         }
     }
 
@@ -1575,19 +1246,7 @@ class CivitaiDownloaderUI {
     }
 
     renderSearchResults(items) { // Expects the array of hits (`processed_items` from backend)
-        this.ensureFontAwesome(); // Ensure FontAwesome is loaded
-
-        if (!items || items.length === 0) {
-            // Determine message based on whether filters/query were used
-            const queryUsed = this.searchQueryInput && this.searchQueryInput.value.trim();
-            const typeFilterUsed = this.searchTypeSelect && this.searchTypeSelect.value !== 'any';
-            const baseModelFilterUsed = this.searchBaseModelSelect && this.searchBaseModelSelect.value !== 'any';
-            const message = (queryUsed || typeFilterUsed || baseModelFilterUsed)
-                          ? 'No models found matching your criteria.'
-                          : 'Enter a query or select filters and click Search.';
-            this.searchResultsContainer.innerHTML = `<p>${message}</p>`;
-            return;
-        }
+        return renderSearchResultsExternal(this, items);
 
         const placeholder = PLACEHOLDER_IMAGE_URL; // Ensure this global var is accessible
         const onErrorScript = `this.onerror=null; this.src='${placeholder}'; this.style.backgroundColor='#444';`;
@@ -1787,14 +1446,6 @@ class CivitaiDownloaderUI {
             fragment.appendChild(listItem); // Add the completed item to the fragment
         }); // End forEach loop for hits
 
-        // --- Update the DOM ---
-        this.searchResultsContainer.innerHTML = ''; // Clear previous results/spinner
-        this.searchResultsContainer.appendChild(fragment);
-
-        // --- Post-render Actions ---
-        // Event listeners for download and "show all versions" buttons are handled
-        // by the event delegation set up in `setupEventListeners`. No need to re-attach here.
-
     } // End renderSearchResults method
     
 
@@ -1923,9 +1574,11 @@ class CivitaiDownloaderUI {
             console.error("[Civicomfy] Modal element not found for opening!");
             return;
         }
+        
         this.modal.classList.add('open');
-        // Temporarily disable body scroll - check if ComfyUI uses a specific class for this
-        document.body.style.setProperty('overflow', 'hidden', 'important'); // Force override if needed
+        
+        // Temporarily disable body scroll
+        document.body.style.setProperty('overflow', 'hidden', 'important');
 
         this.startStatusUpdates(); // Start polling status when modal opens
 
@@ -1948,53 +1601,17 @@ class CivitaiDownloaderUI {
 
      // --- Toast Notifications ---
      showToast(message, type = 'info', duration = 3000) {
-        if (!this.toastElement) {
-             console.warn("[Civicomfy] Toast element not found.");
-             return;
+        if (this.feedback && typeof this.feedback.show === 'function') {
+            this.feedback.show(message, type, duration);
         }
-
-        // Clear existing timeout to prevent overlap / premature hiding
-        if (this.toastTimeout) {
-            clearTimeout(this.toastTimeout);
-            this.toastTimeout = null; // Clear the ID
-        }
-
-        // Ensure type is one of the expected values
-        const validTypes = ['info', 'success', 'error', 'warning'];
-        const toastType = validTypes.includes(type) ? type : 'info';
-
-        this.toastElement.textContent = message;
-        // Use classList for cleaner class management
-        this.toastElement.className = 'civitai-toast'; // Reset classes first
-        this.toastElement.classList.add(toastType);
-        // Defer adding 'show' class slightly to allow CSS transition
-        requestAnimationFrame(() => {
-            this.toastElement.classList.add('show');
-        });
-
-        // Automatically remove after duration
-        this.toastTimeout = setTimeout(() => {
-            this.toastElement.classList.remove('show');
-            this.toastTimeout = null; // Clear timeout ID
-            // Optional: Reset classes entirely after fade out animation (e.g., 300ms)
-            // setTimeout(() => { if(this.toastElement) this.toastElement.className = 'civitai-toast'; }, 300);
-        }, duration);
     }
 
     // Helper to add FontAwesome if needed (run once)
     ensureFontAwesome() {
-         if (!document.getElementById('civitai-fontawesome-link')) {
-             const faLink = document.createElement('link');
-             faLink.id = 'civitai-fontawesome-link';
-             faLink.rel = 'stylesheet';
-             faLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css';
-             faLink.integrity = 'sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ=='; // Add integrity hash
-             faLink.crossOrigin = 'anonymous';
-             faLink.referrerPolicy = 'no-referrer';
-             document.head.appendChild(faLink);
-             console.log("[Civicomfy] FontAwesome loaded.");
-         }
-     }
+        if (this.feedback && typeof this.feedback.ensureFontAwesome === 'function') {
+            this.feedback.ensureFontAwesome();
+        }
+    }
 
 } // End of CivitaiDownloaderUI class
 
@@ -2006,7 +1623,7 @@ app.registerExtension({
          console.log("[Civicomfy] Setting up Civicomfy Extension...");
 
          // Inject the CSS file
-         addCssLink();
+         addCssLink(CSS_URL);
 
          // Add the menu button - Initialization of the UI class is now lazy,
          // triggered on the first button click within addMenuButton.
