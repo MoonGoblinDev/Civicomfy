@@ -132,7 +132,7 @@ class CivitaiAPI:
         """Searches models using the Civitai Meilisearch endpoint."""
         meili_url = "https://search.civitai.com/multi-search"
         headers = {'Content-Type': 'application/json'}
-        headers['Authorization'] = f'Bearer ab8565e5ab8dc2d8f0d4256d204781cb63fe8b031eb3779cbbed38a7b5308e5c' #Nothing harmful, everyone have the same meilisearch bearer token. I checked with 3 accounts
+        headers['Authorization'] = f'Bearer 8c46eb2508e21db1e9828a97968d91ab1ca1caa5f70a00e88a2ba1e286603b61' #Nothing harmful, everyone have the same meilisearch bearer token. I checked with 3 accounts
 
         offset = max(0, (page - 1) * limit)
 
