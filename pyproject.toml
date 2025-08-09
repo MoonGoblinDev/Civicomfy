@@ -1,7 +1,7 @@
 [project]
 name = "civicomfy"
 description = "Civicomfy seamlessly integrates Civitai's vast model repository directly into ComfyUI, allowing you to search, download, and organize AI models without leaving your workflow."
-version = "1.0.4"
+version = "1.0.5"
 license = {file = "LICENSE"}
 
 [project.urls]
