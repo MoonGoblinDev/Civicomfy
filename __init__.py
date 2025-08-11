@@ -8,7 +8,7 @@ import os
 EXTENSION_ROOT = os.path.dirname(os.path.realpath(__file__))
 WEB_PATH = os.path.join(EXTENSION_ROOT, "web")
 JS_PATH = os.path.join(WEB_PATH, "js")
-CSS_PATH = os.path.join(JS_PATH, "css") 
+# CSS_PATH definition removed as it was unused and pointed to a non-existent directory.
 JS_FILENAME = "civitaiDownloader.js"
 CSS_FILENAME = "civitaiDownloader.css"
 JS_FILE_PATH = os.path.join(JS_PATH, JS_FILENAME)
@@ -49,7 +49,7 @@ if not os.path.exists(CSS_FILE_PATH):
     print(f"[Civicomfy] WARNING: Frontend CSS file not found!")
     print(f"                         Expected at: {CSS_FILE_PATH}")
     print("                         The downloader UI may not display correctly.")
-    print(f"                         Please ensure '{CSS_FILENAME}' is placed in the '{os.path.basename(CSS_PATH)}' directory inside 'web'.") # Updated path hint
+    print(f"                         Please ensure '{CSS_FILENAME}' is placed in the '{os.path.basename(JS_PATH)}' directory inside 'web'.") # Corrected path hint
     print("*"*80)
     frontend_files_ok = False
 
@@ -58,7 +58,7 @@ if not os.path.exists(JS_FILE_PATH):
     print(f"[Civicomfy] WARNING: Frontend JavaScript file not found!")
     print(f"                         Expected at: {JS_FILE_PATH}")
     print("                         The downloader UI functionality will be missing.")
-    print(f"                         Please ensure '{JS_FILENAME}' is placed in the '{os.path.basename(JS_PATH)}' directory inside 'web'.") # Updated path hint
+    print(f"                         Please ensure '{JS_FILENAME}' is placed in the '{os.path.basename(JS_PATH)}' directory inside 'web'.") # Corrected path hint
     print("*"*80)
     frontend_files_ok = False
 
