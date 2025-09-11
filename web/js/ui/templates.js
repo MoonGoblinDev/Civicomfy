@@ -26,13 +26,19 @@ export function modalTemplate(settings = {}) {
             <div class="civitai-form-row">
               <div class="civitai-form-group">
                 <label for="civitai-model-type">Model Type (Save Location)</label>
-                <select id="civitai-model-type" class="civitai-select" required></select>
+                <div style="display:flex; gap:6px; align-items:center;">
+                  <select id="civitai-model-type" class="civitai-select" required></select>
+                  <button type="button" id="civitai-create-model-type" class="civitai-button small" title="Create new model type folder"><i class="fas fa-folder-plus"></i></button>
+                </div>
               </div>
               <div class="civitai-form-group">
                 <label for="civitai-subdir-select">Save Subfolder</label>
-                <select id="civitai-subdir-select" class="civitai-select">
-                  <option value="">(root)</option>
-                </select>
+                <div style="display:flex; gap:6px; align-items:center;">
+                  <select id="civitai-subdir-select" class="civitai-select">
+                    <option value="">(root)</option>
+                  </select>
+                  <button type="button" id="civitai-create-subdir" class="civitai-button small" title="Create new subfolder"><i class="fas fa-folder-plus"></i></button>
+                </div>
               </div>
               <div class="civitai-form-group">
                 <label for="civitai-model-version-id">Version ID (Optional)</label>

@@ -24,7 +24,43 @@ export function setupEventListeners(ui) {
         await ui.loadAndPopulateSubdirs(ui.downloadModelTypeSelect.value);
     });
 
-    // Subfolder creation removed by request; only show existing subfolders
+    // Create new model type folder (first-level under models/)
+    ui.createModelTypeButton.addEventListener('click', async () => {
+        const name = prompt('Enter new model type folder name (will be created under models/)');
+        if (!name) return;
+        try {
+            const res = await CivitaiDownloaderAPI.createModelType(name);
+            if (res && res.success) {
+                await ui.populateModelTypes();
+                ui.downloadModelTypeSelect.value = res.name;
+                await ui.loadAndPopulateSubdirs(res.name);
+                ui.showToast(`Created model type folder: ${res.name}`, 'success');
+            } else {
+                ui.showToast(res?.error || 'Failed to create model type folder', 'error');
+            }
+        } catch (e) {
+            ui.showToast(e.details || e.message || 'Error creating model type folder', 'error');
+        }
+    });
+
+    // Create new subfolder under current model type
+    ui.createSubdirButton.addEventListener('click', async () => {
+        const type = ui.downloadModelTypeSelect.value;
+        const name = prompt('Enter new subfolder name (you can include nested paths like A/B):');
+        if (!name) return;
+        try {
+            const res = await CivitaiDownloaderAPI.createModelDir(type, name);
+            if (res && res.success) {
+                await ui.loadAndPopulateSubdirs(type);
+                if (ui.subdirSelect) ui.subdirSelect.value = res.created || '';
+                ui.showToast(`Created folder: ${res.created}`, 'success');
+            } else {
+                ui.showToast(res?.error || 'Failed to create folder', 'error');
+            }
+        } catch (e) {
+            ui.showToast(e.details || e.message || 'Error creating folder', 'error');
+        }
+    });
 
     ui.searchForm.addEventListener('submit', (event) => {
         event.preventDefault();

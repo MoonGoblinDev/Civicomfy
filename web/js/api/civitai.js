@@ -98,6 +98,14 @@ export class CivitaiDownloaderAPI {
     });
   }
 
+  static async createModelType(name) {
+    return await this._request("/civitai/create_model_type", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  }
+
   static async getModelRoots(modelType) {
     const q = encodeURIComponent(modelType || 'checkpoint');
     return await this._request(`/civitai/model_roots?type=${q}`);

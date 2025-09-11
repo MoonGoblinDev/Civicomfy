@@ -148,6 +148,37 @@ async def route_create_model_dir(request):
     except Exception as e:
         return web.json_response({"error": "Failed to create directory", "details": str(e)}, status=500)
 
+@prompt_server.routes.post("/civitai/create_model_type")
+async def route_create_model_type(request):
+    """Create a new first-level folder under the main models directory."""
+    try:
+        data = await request.json()
+        name = (data.get("name") or "").strip()
+        if not name:
+            return web.json_response({"error": "Missing 'name'"}, status=400)
+
+        # Sanitize folder name to a single path component
+        from ...utils.helpers import sanitize_filename
+        safe = sanitize_filename(name)
+        if not safe:
+            return web.json_response({"error": "Invalid folder name"}, status=400)
+
+        # Resolve models directory
+        models_dir = getattr(folder_paths, 'models_dir', None)
+        if not models_dir:
+            base = getattr(folder_paths, 'base_path', os.getcwd())
+            models_dir = os.path.join(base, 'models')
+
+        abs_path = os.path.abspath(os.path.join(models_dir, safe))
+        # Ensure it remains inside models_dir
+        if os.path.commonpath([abs_path, os.path.abspath(models_dir)]) != os.path.abspath(models_dir):
+            return web.json_response({"error": "Invalid path"}, status=400)
+
+        os.makedirs(abs_path, exist_ok=True)
+        return web.json_response({"success": True, "name": safe, "path": abs_path})
+    except Exception as e:
+        return web.json_response({"error": "Failed to create model type folder", "details": str(e)}, status=500)
+
 @prompt_server.routes.get("/civitai/model_roots")
 async def route_get_model_roots(request):
     """Return all known root directories for a model type (ComfyUI + plugin custom roots)."""

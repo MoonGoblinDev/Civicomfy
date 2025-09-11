@@ -30,6 +30,8 @@ export class CivitaiDownloaderUI {
         this.cacheDOMElements();
         this.setupEventListeners();
         this.feedback = new Feedback(this.modal.querySelector('#civitai-toast'));
+        // Ensure icon stylesheet is loaded so buttons render icons immediately
+        this.ensureFontAwesome();
     }
 
     // --- Core UI Methods ---
@@ -50,8 +52,10 @@ export class CivitaiDownloaderUI {
         this.modelUrlInput = this.modal.querySelector('#civitai-model-url');
         this.modelVersionIdInput = this.modal.querySelector('#civitai-model-version-id');
         this.downloadModelTypeSelect = this.modal.querySelector('#civitai-model-type');
+        this.createModelTypeButton = this.modal.querySelector('#civitai-create-model-type');
         this.customFilenameInput = this.modal.querySelector('#civitai-custom-filename');
         this.subdirSelect = this.modal.querySelector('#civitai-subdir-select');
+        this.createSubdirButton = this.modal.querySelector('#civitai-create-subdir');
         this.downloadConnectionsInput = this.modal.querySelector('#civitai-connections');
         this.forceRedownloadCheckbox = this.modal.querySelector('#civitai-force-redownload');
         this.downloadSubmitButton = this.modal.querySelector('#civitai-download-submit');
