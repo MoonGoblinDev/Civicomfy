@@ -6,7 +6,7 @@ console.log("Loading Civicomfy UI...");
 
 // --- Configuration ---
 const EXTENSION_NAME = "Civicomfy";
-const CSS_URL = `./civitaiDownloader.css`;
+const CSS_URL = `../civitaiDownloader.css`;
 const PLACEHOLDER_IMAGE_URL = `/extensions/Civicomfy/images/placeholder.jpeg`;
 
 // Add Menu Button to ComfyUI
