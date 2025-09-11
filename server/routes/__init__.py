@@ -12,6 +12,7 @@ from . import DownloadModel
 from . import GetBaseModels
 from . import GetModelDetails
 from . import GetModelTypes
+from . import GetModelDirs
 from . import GetStatus
 from . import OpenPath
 from . import RetryDownload

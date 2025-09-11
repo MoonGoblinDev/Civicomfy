@@ -85,6 +85,32 @@ export class CivitaiDownloaderAPI {
     return await this._request("/civitai/model_types");
   }
 
+  static async getModelDirs(modelType) {
+    const q = encodeURIComponent(modelType || 'checkpoint');
+    return await this._request(`/civitai/model_dirs?type=${q}`);
+  }
+
+  static async createModelDir(modelType, newDir) {
+    return await this._request("/civitai/create_dir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_type: modelType, new_dir: newDir }),
+    });
+  }
+
+  static async getModelRoots(modelType) {
+    const q = encodeURIComponent(modelType || 'checkpoint');
+    return await this._request(`/civitai/model_roots?type=${q}`);
+  }
+
+  static async createModelRoot(modelType, absPath) {
+    return await this._request("/civitai/create_root", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_type: modelType, path: absPath }),
+    });
+  }
+
   static async retryDownload(downloadId) {
     return await this._request("/civitai/retry", {
       method: "POST",
@@ -108,4 +134,3 @@ export class CivitaiDownloaderAPI {
     });
   }
 }
-

@@ -1,3 +1,4 @@
+import { CivitaiDownloaderAPI } from "../../api/civitai.js";
 export function setupEventListeners(ui) {
     // Modal close
     ui.closeButton.addEventListener('click', () => ui.closeModal());
@@ -17,6 +18,13 @@ export function setupEventListeners(ui) {
         event.preventDefault();
         ui.handleDownloadSubmit();
     });
+
+    // Change of model type should refresh subdir list
+    ui.downloadModelTypeSelect.addEventListener('change', async () => {
+        await ui.loadAndPopulateSubdirs(ui.downloadModelTypeSelect.value);
+    });
+
+    // Subfolder creation removed by request; only show existing subfolders
 
     ui.searchForm.addEventListener('submit', (event) => {
         event.preventDefault();

@@ -30,9 +30,11 @@ async def route_download_model(request):
 
         model_url_or_id = data.get("model_url_or_id")
         # 'model_type' defines the target directory category (e.g., 'lora', 'checkpoint')
-        model_type_key = data.get("model_type", "checkpoint").lower() # Internal key for saving dir
+        model_type_value = data.get("model_type", "checkpoint")  # Use as-is; may be a literal folder name
         req_version_id = data.get("model_version_id") # Optional explicit version ID
-        custom_filename = data.get("custom_filename", "").strip()
+        explicit_save_root = (data.get("save_root") or "").strip()
+        custom_filename_input = data.get("custom_filename", "").strip()
+        selected_subdir = (data.get("subdir") or "").strip()
         # Optional file selection overrides
         req_file_id = data.get("file_id")
         req_file_name_contains = data.get("file_name_contains", "").strip()
@@ -44,7 +46,7 @@ async def route_download_model(request):
             raise web.HTTPBadRequest(reason="Missing 'model_url_or_id'")
 
         # --- Input Parsing and Info Fetching ---
-        print(f"[Server Download] Request: {model_url_or_id}, TypeKey: {model_type_key}, Version: {req_version_id}")
+        print(f"[Server Download] Request: {model_url_or_id}, SaveType: {model_type_value}, Version: {req_version_id}")
         # Instantiate API with the key from the request (frontend settings)
         api = CivitaiAPI(api_key or None) # Pass None if empty string
         parsed_model_id, parsed_version_id = parse_civitai_input(model_url_or_id)
@@ -223,38 +225,49 @@ async def route_download_model(request):
         # --- Determine Filename and Output Path ---
         api_filename = primary_file.get("name", f"model_{target_model_id}_ver_{target_version_id}_file_{file_id or 'unknown'}")
 
-        if custom_filename:
-             # Sanitize custom filename carefully
-             base, ext = os.path.splitext(custom_filename)
-             sanitized_base = sanitize_filename(base, default_filename=f"model_{target_model_id}_custom")
+        # Defaults
+        final_filename = sanitize_filename(api_filename)
+        sub_path = ""
 
-             # Add original extension if custom name lacks one, or ensure it's valid
-             if not ext:
-                 _, api_ext = os.path.splitext(api_filename)
-                 # Use API extension if available and seems valid, otherwise guess
-                 valid_extensions = {'.safetensors', '.ckpt', '.pt', '.bin', '.pth', '.onnx', '.yaml', '.vae.pt', '.diffusers', '.json', '.txt', '.zip', '.csv', 'yaml'} # Added common text/archive types
-                 if api_ext and api_ext.lower() in valid_extensions:
-                      ext = api_ext
-                 else:
-                      # Best guess based on preferred formats
-                      primary_file_meta = primary_file.get("metadata", {}) or {}
-                      format_type = primary_file_meta.get("format","").lower()
-                      if format_type == "safetensor": ext = ".safetensors"
-                      elif format_type == "pickletensor": ext = ".ckpt"
-                      else: ext = ".safetensors" # Default assumption
-                      print(f"[Server Download] Warning: Custom filename lacked extension, defaulting to '{ext}' based on API info or guess.")
-             elif ext.lower() not in valid_extensions:
-                  print(f"[Server Download] Warning: Custom filename has unusual extension '{ext}'. Proceeding, but ensure it's correct.")
+        # Subdir: only use the selected existing subdir coming from UI
+        if selected_subdir:
+            norm_sub = os.path.normpath(selected_subdir.replace('\\', '/'))
+            parts = [p for p in norm_sub.split('/') if p and p not in ('.', '..')]
+            if parts:
+                sub_path = os.path.join(*[sanitize_filename(p) for p in parts])
 
-             final_filename = sanitized_base + ext
+        # Filename: ignore any path separators in custom name; treat as base name only
+        if custom_filename_input:
+            safe_name = sanitize_filename(custom_filename_input)
+            base, ext = os.path.splitext(safe_name)
+            if not ext:
+                _, api_ext = os.path.splitext(api_filename)
+                ext = api_ext or ".safetensors"
+            final_filename = base + ext
+
+        # Get the target base directory for the selected model type, allow explicit root
+        if explicit_save_root:
+            # Validate the explicit root belongs to known roots for this type (ComfyUI or plugin)
+            try:
+                from ..routes.GetModelDirs import _get_all_roots_for_type
+                known_roots = _get_all_roots_for_type(model_type_value)
+                if os.path.abspath(explicit_save_root) in [os.path.abspath(p) for p in known_roots]:
+                    base_output_dir = explicit_save_root
+                else:
+                    print(f"[Server Download] Warning: Provided save_root not in known roots for type '{model_type_value}': {explicit_save_root}")
+                    base_output_dir = get_model_dir(model_type_value)
+            except Exception as e:
+                print(f"[Server Download] Warning: Failed validating explicit save_root: {e}")
+                base_output_dir = get_model_dir(model_type_value)
         else:
-             # Sanitize the API filename too, just in case
-             final_filename = sanitize_filename(api_filename)
-             if final_filename != api_filename:
-                 print(f"[Server Download] Sanitized API filename from '{api_filename}' to '{final_filename}'")
-
-        # Get the target directory based on the user's selected 'model_type_key'
-        output_dir = get_model_dir(model_type_key)
+            base_output_dir = get_model_dir(model_type_value)
+        output_dir = os.path.join(base_output_dir, sub_path) if sub_path else base_output_dir
+        # Ensure directory exists (including subdirectories)
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"[Server Download] Ensured output directory exists: {output_dir}")
+        except OSError as e:
+            raise web.HTTPInternalServerError(reason=f"Could not create subdirectory: {e}")
         output_path = os.path.join(output_dir, final_filename)
 
         # Construct corresponding metadata/preview paths
@@ -390,13 +403,18 @@ async def route_download_model(request):
             "num_connections": num_connections,
             "known_size": known_size_bytes,
             "api_key": api_key or None, # Pass API key for download auth if needed
+            # Retry/context fields
+            "model_url_or_id": model_url_or_id,
+            "model_version_id": req_version_id,
+            "custom_filename": custom_filename_input,
+            "force_redownload": force_redownload,
             # UI Display Info
             "filename": final_filename,
             "model_name": model_name,
             "version_name": version_name,
             "thumbnail": thumbnail_url, # URL for UI thumbnail preview
             "thumbnail_nsfw_level": thumbnail_nsfw_level,
-            "model_type": model_type_key, # The category/directory key used for saving
+            "model_type": model_type_value, # The category/directory key or literal folder used for saving
             # Extra file attributes for UI lists
             "file_precision": ui_file_precision,
             "file_model_size": ui_file_model_size,

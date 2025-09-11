@@ -785,10 +785,45 @@ class DownloadManager:
             # Option 1: Check against ComfyUI's known directories (preferred)
             if COMFY_PATHS_AVAILABLE:
                  # Check if the folder is within any known model type directory
-                 known_dirs = [os.path.abspath(get_directory_by_type(t)) for t in ["checkpoints", "loras", "vae", "embeddings", "hypernetworks", "controlnet", "upscale_models", "clip_vision", "gligen", "configs"]] # Add other types as needed
+                 known_types = [
+                     "checkpoints", "loras", "vae", "embeddings", "hypernetworks",
+                     "controlnet", "upscale_models", "clip_vision", "gligen", "configs",
+                     "unet", "diffusers", "motion_models", "poses", "wildcards"
+                 ]
+                 known_dirs = [os.path.abspath(get_directory_by_type(t)) for t in known_types if get_directory_by_type(t)]
                  # Also allow output and input directories
                  if get_directory_by_type("output"): known_dirs.append(os.path.abspath(get_directory_by_type("output")))
                  if get_directory_by_type("input"): known_dirs.append(os.path.abspath(get_directory_by_type("input")))
+                 # Add the plugin's own 'other_models' directory as safe
+                 known_dirs.append(os.path.abspath(os.path.join(PLUGIN_ROOT, "other_models")))
+                 # Add plugin-managed custom roots as safe
+                 try:
+                     import json as _json
+                     _roots_file = os.path.join(PLUGIN_ROOT, "custom_roots.json")
+                     if os.path.exists(_roots_file):
+                         with open(_roots_file, 'r', encoding='utf-8') as _f:
+                             _data = _json.load(_f)
+                             if isinstance(_data, dict):
+                                 for _lst in _data.values():
+                                     if isinstance(_lst, list):
+                                         for _p in _lst:
+                                             if isinstance(_p, str):
+                                                 known_dirs.append(os.path.abspath(_p))
+                 except Exception as _e:
+                     print(f"[Manager OpenPath] Warning: Failed to load custom roots: {_e}")
+                 # Include all first-level subdirectories under models_dir as safe
+                 try:
+                     models_dir = getattr(__import__('folder_paths'), 'folder_paths').models_dir
+                 except Exception:
+                     models_dir = None
+                 try:
+                     if models_dir and os.path.isdir(models_dir):
+                         for _name in os.listdir(models_dir):
+                             _p = os.path.join(models_dir, _name)
+                             if os.path.isdir(_p):
+                                 known_dirs.append(os.path.abspath(_p))
+                 except Exception as _e2:
+                     print(f"[Manager OpenPath] Warning: Failed enumerating models_dir subfolders: {_e2}")
 
                  for known_dir in known_dirs:
                       if os.path.commonpath([known_dir, folder_path]) == known_dir:

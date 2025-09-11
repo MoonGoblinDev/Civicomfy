@@ -27,30 +27,28 @@ PLACEHOLDER_IMAGE_PATH = os.path.join(WEB_DIRECTORY, "images", "placeholder.jpeg
 
 # Get ComfyUI directories using folder_paths
 COMFYUI_ROOT_DIR = folder_paths.base_path
-MODELS_DIR = folder_paths.models_dir # Base 'models' directory
+# MODELS_DIR removed; resolve per-type via folder_paths
 
 # --- Model Types ---
-# Maps the internal key (lowercase) to a tuple: (display_name, subfolder_name)
-# The subfolder_name is relative to the ComfyUI MODELS_DIR.
+# Maps the internal key (lowercase) to a tuple: (display_name, folder_paths_type)
+# The folder_paths_type is used by ComfyUI's folder_paths.get_directory_by_type().
 MODEL_TYPE_DIRS = {
     "checkpoint": ("Checkpoint", "checkpoints"),
-    "diffusionmodels": ("Diffusion Models","diffusion_models"),
-    "Unet": ("Unet", "Unet"),
+    "diffusionmodels": ("Diffusion Models", "diffusers"),
+    "unet": ("Unet", "unet"),
     "lora": ("Lora", "loras"),
-    "locon": ("LoCon", "loras"), # Often grouped with LORAs
-    "lycoris": ("LyCORIS", "loras"), # Sometimes grouped with LORAs
+    "locon": ("LoCon", "loras"),
+    "lycoris": ("LyCORIS", "loras"),
     "vae": ("VAE", "vae"),
     "embedding": ("Embedding", "embeddings"),
     "hypernetwork": ("Hypernetwork", "hypernetworks"),
     "controlnet": ("ControlNet", "controlnet"),
     "upscaler": ("Upscaler", "upscale_models"),
     "motionmodule": ("Motion Module", "motion_models"),
-    "poses": ("Poses", "poses"), # Saved inside models/poses
-    "wildcards": ("Wildcards", "wildcards"), # Often saved outside models dir, but can be here too
-    # Place 'other' in a dedicated subfolder WITHIN the Civicomfy node folder
-    # This keeps downloaded files associated with this node separate if type is unknown.
-    # The path here is RELATIVE to MODELS_DIR.
-    "other": ("Other", os.path.join("custom_nodes", os.path.basename(PLUGIN_ROOT), "other_models"))
+    "poses": ("Poses", "poses"),
+    "wildcards": ("Wildcards", "wildcards"),
+    # 'other' will save to a dedicated folder inside the Civicomfy extension directory
+    "other": ("Other", None)
 }
 
 # Civitai API specific type mapping (for search filters)
@@ -68,7 +66,8 @@ CIVITAI_API_TYPE_MAP = {
     "poses": "Poses",
     "wildcards": "Wildcards",
     "upscaler": "Upscaler", 
-    # "other": None,
+    "unet": "UNET",
+    "diffusionmodels": "Checkpoint", # No specific type, map to checkpoint
 }
 
 AVAILABLE_MEILI_BASE_MODELS = [
@@ -86,20 +85,10 @@ AVAILABLE_MEILI_BASE_MODELS = [
 METADATA_SUFFIX = ".cminfo.json"
 PREVIEW_SUFFIX = ".preview.jpeg" # Keep as requested, even if source is png/webp
 
-# Ensure 'other' directory exists (using the path relative to MODELS_DIR)
-try:
-    _other_relative_path = MODEL_TYPE_DIRS["other"][1]
-    _other_full_path = os.path.join(MODELS_DIR, _other_relative_path)
-    os.makedirs(_other_full_path, exist_ok=True)
-    print(f"[Civicomfy Config] Ensured 'other' model directory exists: {_other_full_path}")
-except Exception as e:
-    print(f"[Civicomfy Config] Warning: Failed to create 'other' model directory: {e}")
-
 # --- Log Initial Paths for Verification ---
 print("-" * 30)
 print("[Civicomfy Config Initialized]")
 print(f"  - Plugin Root: {PLUGIN_ROOT}")
 print(f"  - Web Directory: {WEB_DIRECTORY}")
-print(f"  - ComfyUI Models Dir: {MODELS_DIR}")
-print(f"  - 'Other' Models Subfolder (relative): {MODEL_TYPE_DIRS['other'][1]}")
+print(f"  - ComfyUI Base Path: {COMFYUI_ROOT_DIR}")
 print("-" * 30)

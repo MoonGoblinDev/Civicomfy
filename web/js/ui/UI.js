@@ -51,6 +51,7 @@ export class CivitaiDownloaderUI {
         this.modelVersionIdInput = this.modal.querySelector('#civitai-model-version-id');
         this.downloadModelTypeSelect = this.modal.querySelector('#civitai-model-type');
         this.customFilenameInput = this.modal.querySelector('#civitai-custom-filename');
+        this.subdirSelect = this.modal.querySelector('#civitai-subdir-select');
         this.downloadConnectionsInput = this.modal.querySelector('#civitai-connections');
         this.forceRedownloadCheckbox = this.modal.querySelector('#civitai-force-redownload');
         this.downloadSubmitButton = this.modal.querySelector('#civitai-download-submit');
@@ -128,10 +129,12 @@ export class CivitaiDownloaderUI {
                 const option = document.createElement('option');
                 option.value = key;
                 option.textContent = displayName;
-                this.downloadModelTypeSelect.appendChild(option.cloneNode(true));
-                this.settingsDefaultTypeSelect.appendChild(option.cloneNode(true));
-                this.searchTypeSelect.appendChild(option.cloneNode(true));
-            });
+            this.downloadModelTypeSelect.appendChild(option.cloneNode(true));
+            this.settingsDefaultTypeSelect.appendChild(option.cloneNode(true));
+            this.searchTypeSelect.appendChild(option.cloneNode(true));
+        });
+        // After types are populated, load subdirs for the current selection
+        await this.loadAndPopulateSubdirs(this.downloadModelTypeSelect.value);
         } catch (error) {
             console.error("[Civicomfy] Failed to get or populate model types:", error);
             this.showToast('Failed to load model types', 'error');
@@ -139,6 +142,40 @@ export class CivitaiDownloaderUI {
             this.modelTypes = { "checkpoint": "Checkpoint (Default)" };
         }
     }
+
+    async loadAndPopulateSubdirs(modelType) {
+        try {
+            const res = await CivitaiDownloaderAPI.getModelDirs(modelType);
+            const select = this.subdirSelect;
+            if (!select) return;
+            const current = select.value;
+            select.innerHTML = '';
+            const optRoot = document.createElement('option');
+            optRoot.value = '';
+            optRoot.textContent = '(root)';
+            select.appendChild(optRoot);
+            if (res && Array.isArray(res.subdirs)) {
+                // res.subdirs contains '' for root; skip empty since we added (root)
+                res.subdirs.filter(p => p && typeof p === 'string').forEach(rel => {
+                    const opt = document.createElement('option');
+                    opt.value = rel;
+                    opt.textContent = rel;
+                    select.appendChild(opt);
+                });
+            }
+            // Restore selection if still present
+            if (Array.from(select.options).some(o => o.value === current)) {
+                select.value = current;
+            }
+        } catch (e) {
+            console.error('[Civicomfy] Failed to load subdirectories:', e);
+            if (this.subdirSelect) {
+                this.subdirSelect.innerHTML = '<option value="">(root)</option>';
+            }
+        }
+    }
+
+    // (loadAndPopulateRoots removed; dynamic types already reflect models/ subfolders)
 
     async populateBaseModels() {
         console.log("[Civicomfy] Populating base models...");

@@ -29,6 +29,12 @@ export function modalTemplate(settings = {}) {
                 <select id="civitai-model-type" class="civitai-select" required></select>
               </div>
               <div class="civitai-form-group">
+                <label for="civitai-subdir-select">Save Subfolder</label>
+                <select id="civitai-subdir-select" class="civitai-select">
+                  <option value="">(root)</option>
+                </select>
+              </div>
+              <div class="civitai-form-group">
                 <label for="civitai-model-version-id">Version ID (Optional)</label>
                 <input type="number" id="civitai-model-version-id" class="civitai-input" placeholder="Overrides URL/Latest">
               </div>

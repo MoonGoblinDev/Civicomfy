@@ -58,11 +58,16 @@ export async function handleDownloadSubmit(ui) {
         return;
     }
 
+    // Subfolder comes from dropdown; filename is base name only
+    const selectedSubdir = ui.subdirSelect ? ui.subdirSelect.value.trim() : '';
+    const userFilename = ui.customFilenameInput.value.trim();
+
     const params = {
         model_url_or_id: modelUrlOrId,
         model_type: ui.downloadModelTypeSelect.value,
         model_version_id: ui.modelVersionIdInput.value ? parseInt(ui.modelVersionIdInput.value, 10) : null,
-        custom_filename: ui.customFilenameInput.value.trim(),
+        custom_filename: userFilename,
+        subdir: selectedSubdir,
         num_connections: parseInt(ui.downloadConnectionsInput.value, 10),
         force_redownload: ui.forceRedownloadCheckbox.checked,
         api_key: ui.settings.apiKey

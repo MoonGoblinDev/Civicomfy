@@ -10,35 +10,67 @@ from typing import Optional, List, Dict, Any
 import folder_paths 
 
 # Import config values needed here
-from ..config import MODELS_DIR, MODEL_TYPE_DIRS
+from ..config import PLUGIN_ROOT, MODEL_TYPE_DIRS
 
 def get_model_dir(model_type: str) -> str:
     """
-    Get the appropriate absolute directory path for the model type.
+    Resolve the absolute directory path for a model type using ComfyUI's
+    folder_paths manager. Respects extra_model_paths.yaml and symlinks.
     Ensures the directory exists.
     """
-    model_type_key = model_type.lower().strip()
+    model_type_raw = (model_type or "").strip()
+    model_type_key = model_type_raw.lower()
 
-    if model_type_key in MODEL_TYPE_DIRS:
-        relative_path = MODEL_TYPE_DIRS[model_type_key][1] # Get the subfolder name
-        # Ensure the relative path is treated correctly even if it contains os-specific separators internally
-        # os.path.join will handle combining MODELS_DIR and the potentially complex relative_path
-        full_path = os.path.join(MODELS_DIR, relative_path)
+    display_and_type = MODEL_TYPE_DIRS.get(model_type_key)
+    folder_paths_type = None
+    if display_and_type:
+        _, folder_paths_type = display_and_type
+
+    if display_and_type and folder_paths_type:
+        try:
+            # Preferred: ask ComfyUI for the configured directory for this type
+            full_path = folder_paths.get_directory_by_type(folder_paths_type)
+            # If API returned a falsy value, try alternative lookups
+            if not full_path:
+                raise RuntimeError(f"No directory registered for type '{folder_paths_type}'")
+        except Exception:
+            # Fallback: assume a subdirectory under models_dir
+            print(f"Warning: Could not resolve path for type '{folder_paths_type}' via folder_paths. Falling back to models_dir.")
+            # Try get_folder_paths first
+            full_path = None
+            try:
+                get_fp = getattr(folder_paths, 'get_folder_paths', None)
+                if callable(get_fp):
+                    paths_list = get_fp(folder_paths_type)
+                    if isinstance(paths_list, (list, tuple)) and paths_list:
+                        full_path = paths_list[0]
+            except Exception:
+                pass
+            if not full_path:
+                models_dir = getattr(folder_paths, 'models_dir', None)
+                if not models_dir:
+                    # Last resort: try to infer a models dir near base_path
+                    base = getattr(folder_paths, 'base_path', os.getcwd())
+                    models_dir = os.path.join(base, 'models')
+                full_path = os.path.join(models_dir, folder_paths_type)
     else:
-        # Default to the 'other' directory if type is unknown
-        print(f"Warning: Unknown model type '{model_type}'. Saving to 'other' directory.")
-        relative_path = MODEL_TYPE_DIRS['other'][1]
-        full_path = os.path.join(MODELS_DIR, relative_path)
+        # Treat model_type as a literal folder under the main models directory
+        models_dir = getattr(folder_paths, 'models_dir', None)
+        if not models_dir:
+            base = getattr(folder_paths, 'base_path', os.getcwd())
+            models_dir = os.path.join(base, 'models')
+        # Use the raw (case-preserving) folder name
+        full_path = os.path.join(models_dir, model_type_raw)
 
     # Ensure the directory exists
     try:
+        # Ensure full_path is a string path
+        if not isinstance(full_path, (str, bytes, os.PathLike)):
+            raise TypeError(f"Resolved directory for '{model_type_key}' is invalid: {full_path!r}")
         os.makedirs(full_path, exist_ok=True)
-    except OSError as e:
-         # Handle potential errors like permission denied
-         print(f"Error: Could not create directory '{full_path}': {e}")
-         # Fallback? Or raise error? For now, just print and return, download will likely fail.
-         # Consider falling back to a known-good temp location if MODELS_DIR itself is bad? Complex.
-         pass
+    except Exception as e:
+        print(f"Error: Could not create directory '{full_path}': {e}")
+
     return full_path
 
 def parse_civitai_input(url_or_id: str) -> tuple[int | None, int | None]:

@@ -88,6 +88,20 @@ if imports_successful:
     print("- Look for 'Civicomfy' button in the ComfyUI menu.")
     print("-" * 30)
 
+    # Ensure default model-type directories exist at startup
+    try:
+        from .utils.helpers import get_model_dir
+        from .config import MODEL_TYPE_DIRS
+        created = []
+        for key in MODEL_TYPE_DIRS.keys():
+            path = get_model_dir(key)
+            created.append((key, path))
+        print("[Civicomfy] Verified model type directories:")
+        for k, p in created:
+            print(f"  - {k}: {p}")
+    except Exception as e:
+        print(f"[Civicomfy] Warning: Failed ensuring model directories at startup: {e}")
+
 else:
     # If imports failed, don't register anything with ComfyUI
     print("[Civicomfy] Initialization failed due to import errors. Extension inactive.")
