@@ -28,17 +28,21 @@ export async function updateStatus(ui) {
         const oldStateString = JSON.stringify(ui.statusData);
         const newStateString = JSON.stringify(newStatusData);
 
+        // Cache new state if it differs
         if (oldStateString !== newStateString) {
             ui.statusData = newStatusData;
-            const activeCount = ui.statusData.active.length + ui.statusData.queue.length;
-            ui.activeCountSpan.textContent = activeCount;
-            ui.statusIndicator.style.display = activeCount > 0 ? 'inline' : 'none';
+        }
 
-            if (ui.activeTab === 'status') {
-                ui.renderDownloadList(ui.statusData.active, ui.activeListContainer, 'No active downloads.');
-                ui.renderDownloadList(ui.statusData.queue, ui.queuedListContainer, 'Download queue is empty.');
-                ui.renderDownloadList(ui.statusData.history, ui.historyListContainer, 'No download history yet.');
-            }
+        // Always keep counters in sync
+        const activeCount = ui.statusData.active.length + ui.statusData.queue.length;
+        ui.activeCountSpan.textContent = activeCount;
+        ui.statusIndicator.style.display = activeCount > 0 ? 'inline' : 'none';
+
+        // Always render when Status tab is active, even if data hasn't changed
+        if (ui.activeTab === 'status') {
+            ui.renderDownloadList(ui.statusData.active, ui.activeListContainer, 'No active downloads.');
+            ui.renderDownloadList(ui.statusData.queue, ui.queuedListContainer, 'Download queue is empty.');
+            ui.renderDownloadList(ui.statusData.history, ui.historyListContainer, 'No download history yet.');
         }
     } catch (error) {
         console.error("[Civicomfy] Failed to update status:", error);

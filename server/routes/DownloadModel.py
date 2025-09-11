@@ -315,8 +315,9 @@ async def route_download_model(request):
         model_name = model_info.get('name', version_info['model']['name'])
         version_name = version_info.get('name', 'Unknown Version')
 
-        # Extract a suitable thumbnail URL (ensure it's done robustly)
+        # Extract a suitable thumbnail URL (ensure it's done robustly) and nsfw level for it
         thumbnail_url = None
+        thumbnail_nsfw_level = None
         images = version_info.get("images")
         if images and isinstance(images, list) and len(images) > 0:
              # Ensure images are dictionaries with URLs
@@ -332,6 +333,11 @@ async def route_download_model(request):
 
              if img_data and img_data.get("url"):
                    base_url = img_data["url"]
+                   try:
+                       lvl = img_data.get("nsfwLevel")
+                       thumbnail_nsfw_level = int(lvl) if lvl is not None else None
+                   except Exception:
+                       thumbnail_nsfw_level = None
                    # Try to get a reasonably sized thumbnail version (e.g., width 256-450)
                    try:
                        # Basic heuristic: replace width param or append if not present/blob
@@ -389,6 +395,7 @@ async def route_download_model(request):
             "model_name": model_name,
             "version_name": version_name,
             "thumbnail": thumbnail_url, # URL for UI thumbnail preview
+            "thumbnail_nsfw_level": thumbnail_nsfw_level,
             "model_type": model_type_key, # The category/directory key used for saving
             # Extra file attributes for UI lists
             "file_precision": ui_file_precision,
@@ -416,6 +423,7 @@ async def route_download_model(request):
                 "model_name": model_name,
                 "version_name": version_name,
                 "thumbnail": thumbnail_url,
+                "thumbnail_nsfw_level": thumbnail_nsfw_level,
                 "path": output_path, # The intended final path
                 "size_kb": api_size_kb if api_size_kb else None # Use KB for display consistency
             }

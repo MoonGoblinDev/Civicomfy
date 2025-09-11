@@ -64,7 +64,7 @@ export function applySettings(ui) {
     }
     if (ui.settingsNsfwThresholdInput) {
         const val = Number(ui.settings.nsfwBlurMinLevel);
-        ui.settingsNsfwThresholdInput.value = Number.isFinite(val) ? val : 32;
+        ui.settingsNsfwThresholdInput.value = Number.isFinite(val) ? val : 4;
     }
     if (ui.downloadConnectionsInput) {
         ui.downloadConnectionsInput.value = Math.max(1, Math.min(16, ui.settings.numConnections || 1));
@@ -97,7 +97,7 @@ export function handleSettingsSave(ui) {
     ui.settings.defaultModelType = defaultModelType;
     ui.settings.autoOpenStatusTab = autoOpenStatusTab;
     ui.settings.hideMatureInSearch = hideMatureInSearch;
-    ui.settings.nsfwBlurMinLevel = (Number.isFinite(nsfwBlurMinLevel) && nsfwBlurMinLevel >= 0) ? Math.min(128, Math.round(nsfwBlurMinLevel)) : 32;
+    ui.settings.nsfwBlurMinLevel = (Number.isFinite(nsfwBlurMinLevel) && nsfwBlurMinLevel >= 0) ? Math.min(128, Math.round(nsfwBlurMinLevel)) : 4;
 
     ui.saveSettingsToCookie();
     ui.applySettings();

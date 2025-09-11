@@ -139,7 +139,7 @@ export function modalTemplate(settings = {}) {
                 </div>
                 <div class="civitai-form-group">
                   <label for="civitai-settings-nsfw-threshold">NSFW Blur Threshold (nsfwLevel)</label>
-                  <input type="number" id="civitai-settings-nsfw-threshold" class="civitai-input" value="${Number.isFinite(settings.nsfwBlurMinLevel) ? settings.nsfwBlurMinLevel : 32}" min="0" max="128" step="1">
+                  <input type="number" id="civitai-settings-nsfw-threshold" class="civitai-input" value="${Number.isFinite(settings.nsfwBlurMinLevel) ? settings.nsfwBlurMinLevel : 4}" min="0" max="128" step="1">
                   <p style="font-size: 0.85em; color: #bbb; margin-top: 5px;">
                     Blur thumbnails when an image's <code>nsfwLevel</code> is greater than or equal to this value.
                     Higher numbers indicate more explicit content. None (Safe/PG): 1, Mild (PG-13): 2, Mature (R): 4, Adult (X): 5, Extra Explicit (R): 8, Explicit (XXX): 16/32+

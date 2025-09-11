@@ -698,7 +698,9 @@
 
 /* Blur/Hide for R-rated thumbnails */
 .civitai-thumbnail-container.blurred img.civitai-search-thumbnail,
-.civitai-thumbnail-container.blurred video.civitai-search-thumbnail {
+.civitai-thumbnail-container.blurred video.civitai-search-thumbnail,
+.civitai-thumbnail-container.blurred img.civitai-download-thumbnail,
+.civitai-thumbnail-container.blurred video.civitai-download-thumbnail {
     filter: blur(14px) brightness(0.6) saturate(0.6);
     pointer-events: none; /* Let clicks hit the container */
 }

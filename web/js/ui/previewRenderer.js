@@ -18,14 +18,21 @@ export function renderDownloadPreview(ui, data) {
   const fileInfo = data.file_info || {};
   const files = Array.isArray(data.files) ? data.files : [];
   const thumbnail = data.thumbnail_url || PLACEHOLDER_IMAGE_URL;
+  const nsfwLevel = Number(data.nsfw_level ?? 0);
+  const blurMinLevel = Number(ui.settings?.nsfwBlurMinLevel ?? 4);
+  const shouldBlur = ui.settings?.hideMatureInSearch === true && nsfwLevel >= blurMinLevel;
   const civitaiLink = `https://civitai.com/models/${modelId}${data.version_id ? '?modelVersionId=' + data.version_id : ''}`;
 
   const onErrorScript = `this.onerror=null; this.src='${PLACEHOLDER_IMAGE_URL}'; this.style.backgroundColor='#444';`;
 
+  const overlayHtml = shouldBlur ? `<div class="civitai-nsfw-overlay" title="R-rated: click to reveal">R</div>` : '';
+  const containerClasses = `civitai-thumbnail-container${shouldBlur ? ' blurred' : ''}`;
+
   const previewHtml = `
     <div class="civitai-search-item" style="background-color: var(--comfy-input-bg);">
-      <div class="civitai-thumbnail-container">
+      <div class="${containerClasses}" data-nsfw-level="${Number.isFinite(nsfwLevel) ? nsfwLevel : ''}">
         <img src="${thumbnail}" alt="${modelName} thumbnail" class="civitai-search-thumbnail" loading="lazy" onerror="${onErrorScript}">
+        ${overlayHtml}
         <div class="civitai-type-badge">${modelType}</div>
       </div>
       <div class="civitai-search-info">
@@ -87,4 +94,3 @@ export function renderDownloadPreview(ui, data) {
 
   ui.downloadPreviewArea.innerHTML = previewHtml;
 }
-

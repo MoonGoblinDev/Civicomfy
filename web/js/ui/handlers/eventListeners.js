@@ -42,8 +42,32 @@ export function setupEventListeners(ui) {
 
     // --- DYNAMIC CONTENT LISTENERS (Event Delegation) ---
 
-    // Status tab actions (Cancel/Retry/Open/Clear)
+    // Status tab actions (Cancel/Retry/Open/Clear) and click-to-toggle blur on thumbs
     ui.statusContent.addEventListener('click', (event) => {
+        const thumbContainer = event.target.closest('.civitai-thumbnail-container');
+        if (thumbContainer) {
+            const nsfwLevel = Number(thumbContainer.dataset.nsfwLevel ?? thumbContainer.getAttribute('data-nsfw-level'));
+            const threshold = Number(ui.settings?.nsfwBlurMinLevel ?? 4);
+            const enabled = ui.settings?.hideMatureInSearch === true;
+            if (enabled && Number.isFinite(nsfwLevel) && nsfwLevel >= threshold) {
+                if (thumbContainer.classList.contains('blurred')) {
+                    thumbContainer.classList.remove('blurred');
+                    const overlay = thumbContainer.querySelector('.civitai-nsfw-overlay');
+                    if (overlay) overlay.remove();
+                } else {
+                    thumbContainer.classList.add('blurred');
+                    if (!thumbContainer.querySelector('.civitai-nsfw-overlay')) {
+                        const ov = document.createElement('div');
+                        ov.className = 'civitai-nsfw-overlay';
+                        ov.title = 'R-rated: click to reveal';
+                        ov.textContent = 'R';
+                        thumbContainer.appendChild(ov);
+                    }
+                }
+                return; // consume
+            }
+        }
+
         const button = event.target.closest('button');
         if (!button) return;
 
@@ -57,15 +81,56 @@ export function setupEventListeners(ui) {
         }
     });
 
-    // Search results actions
-    ui.searchResultsContainer.addEventListener('click', (event) => {
-        // Click-to-reveal for blurred R-rated thumbnails
+    // Download preview click-to-toggle blur
+    ui.downloadPreviewArea.addEventListener('click', (event) => {
         const thumbContainer = event.target.closest('.civitai-thumbnail-container');
-        if (thumbContainer && thumbContainer.classList.contains('blurred')) {
-            thumbContainer.classList.remove('blurred');
-            const overlay = thumbContainer.querySelector('.civitai-nsfw-overlay');
-            if (overlay) overlay.remove();
-            return; // Don't trigger other actions on this click
+        if (thumbContainer) {
+            const nsfwLevel = Number(thumbContainer.dataset.nsfwLevel ?? thumbContainer.getAttribute('data-nsfw-level'));
+            const threshold = Number(ui.settings?.nsfwBlurMinLevel ?? 4);
+            const enabled = ui.settings?.hideMatureInSearch === true;
+            if (enabled && Number.isFinite(nsfwLevel) && nsfwLevel >= threshold) {
+                if (thumbContainer.classList.contains('blurred')) {
+                    thumbContainer.classList.remove('blurred');
+                    const overlay = thumbContainer.querySelector('.civitai-nsfw-overlay');
+                    if (overlay) overlay.remove();
+                } else {
+                    thumbContainer.classList.add('blurred');
+                    if (!thumbContainer.querySelector('.civitai-nsfw-overlay')) {
+                        const ov = document.createElement('div');
+                        ov.className = 'civitai-nsfw-overlay';
+                        ov.title = 'R-rated: click to reveal';
+                        ov.textContent = 'R';
+                        thumbContainer.appendChild(ov);
+                    }
+                }
+            }
+        }
+    });
+
+    // Search results actions, including click-to-toggle blur
+    ui.searchResultsContainer.addEventListener('click', (event) => {
+        const thumbContainer = event.target.closest('.civitai-thumbnail-container');
+        if (thumbContainer) {
+            const nsfwLevel = Number(thumbContainer.dataset.nsfwLevel ?? thumbContainer.getAttribute('data-nsfw-level'));
+            const threshold = Number(ui.settings?.nsfwBlurMinLevel ?? 4);
+            const enabled = ui.settings?.hideMatureInSearch === true;
+            if (enabled && Number.isFinite(nsfwLevel) && nsfwLevel >= threshold) {
+                if (thumbContainer.classList.contains('blurred')) {
+                    thumbContainer.classList.remove('blurred');
+                    const overlay = thumbContainer.querySelector('.civitai-nsfw-overlay');
+                    if (overlay) overlay.remove();
+                } else {
+                    thumbContainer.classList.add('blurred');
+                    if (!thumbContainer.querySelector('.civitai-nsfw-overlay')) {
+                        const ov = document.createElement('div');
+                        ov.className = 'civitai-nsfw-overlay';
+                        ov.title = 'R-rated: click to reveal';
+                        ov.textContent = 'R';
+                        thumbContainer.appendChild(ov);
+                    }
+                }
+                return; // Don't trigger other actions on this click
+            }
         }
 
         const downloadButton = event.target.closest('.civitai-search-download-button');

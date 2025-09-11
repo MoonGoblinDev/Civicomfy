@@ -24,6 +24,9 @@ export function renderDownloadList(ui, items, container, emptyMessage) {
     const startTime = item.start_time || null;
     const endTime = item.end_time || null;
     const thumbnail = item.thumbnail || PLACEHOLDER_IMAGE_URL;
+    const nsfwLevel = Number(item.thumbnail_nsfw_level ?? 0);
+    const blurMinLevel = Number(ui.settings?.nsfwBlurMinLevel ?? 4);
+    const shouldBlur = ui.settings?.hideMatureInSearch === true && nsfwLevel >= blurMinLevel;
     const connectionType = item.connection_type || "N/A";
 
     let progressBarClass = '';
@@ -48,8 +51,14 @@ export function renderDownloadList(ui, items, container, emptyMessage) {
     const errorTooltip = errorMsg ? `title="Error Details: ${String(errorMsg).substring(0, 200)}${String(errorMsg).length > 200 ? '...' : ''}"` : '';
     const connectionInfoHtml = connectionType !== "N/A" ? `<span style="font-size: 0.85em; color: #aaa; margin-left: 10px;">(Conn: ${connectionType})</span>` : '';
 
+    const overlayHtml = shouldBlur ? `<div class=\"civitai-nsfw-overlay\" title=\"R-rated: click to reveal\">R</div>` : '';
+    const containerClasses = `civitai-thumbnail-container${shouldBlur ? ' blurred' : ''}`;
+
     let innerHTML = `
-      <img src="${thumbnail}" alt="thumbnail" class="civitai-download-thumbnail" loading="lazy" onerror="${onErrorScript}">
+      <div class="${containerClasses}" data-nsfw-level="${Number.isFinite(nsfwLevel) ? nsfwLevel : ''}">
+        <img src="${thumbnail}" alt="thumbnail" class="civitai-download-thumbnail" loading="lazy" onerror="${onErrorScript}">
+        ${overlayHtml}
+      </div>
       <div class="civitai-download-info">
         <strong>${modelName}</strong>
         <p>Ver: ${versionName}</p>
@@ -102,4 +111,3 @@ export function renderDownloadList(ui, items, container, emptyMessage) {
   container.appendChild(fragment);
   ui.ensureFontAwesome();
 }
-

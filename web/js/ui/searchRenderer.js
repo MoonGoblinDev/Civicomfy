@@ -36,7 +36,7 @@ export function renderSearchResults(ui, items) {
     const firstImage = Array.isArray(hit.images) && hit.images.length > 0 ? hit.images[0] : null;
     const thumbnailType = firstImage?.type;
     const nsfwLevel = Number(firstImage?.nsfwLevel ?? hit.nsfwLevel ?? 0);
-    const blurMinLevel = Number(ui.settings?.nsfwBlurMinLevel ?? 32);
+    const blurMinLevel = Number(ui.settings?.nsfwBlurMinLevel ?? 4);
     const shouldBlur = ui.settings?.hideMatureInSearch === true && nsfwLevel >= blurMinLevel;
 
     const allVersions = hit.versions || [];

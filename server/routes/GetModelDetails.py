@@ -98,12 +98,19 @@ async def route_get_model_details(request):
 
         thumbnail_url = None
         images = version_info.get("images") # Get the images list from the version info
+        nsfw_level = None
 
         # Check if images list exists, is a list, has items, and the first item is valid with a URL
         if images and isinstance(images, list) and len(images) > 0 and \
            isinstance(images[0], dict) and images[0].get("url"):
             # Use the URL of the very first image directly
-            thumbnail_url = images[0]["url"]
+            first_image = images[0]
+            thumbnail_url = first_image["url"]
+            try:
+                lvl = first_image.get("nsfwLevel")
+                nsfw_level = int(lvl) if lvl is not None else None
+            except Exception:
+                nsfw_level = None
             print(f"[Get Details Route] Using first image URL as thumbnail: {thumbnail_url}")
         else:
             print("[Get Details Route] No valid first image found in version info, falling back to placeholder.")
@@ -161,6 +168,7 @@ async def route_get_model_details(request):
             },
             "files": files_list,
             "thumbnail_url": thumbnail_url,
+            "nsfw_level": nsfw_level,
             # Optionally include basic version info like baseModel
             "base_model": version_info.get("baseModel", "N/A"),
             # You could add tags here too if desired: model_info.get('tags', [])
