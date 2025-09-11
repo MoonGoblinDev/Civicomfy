@@ -696,6 +696,29 @@
     border-radius: 4px; /* Match styling */
 }
 
+/* Blur/Hide for R-rated thumbnails */
+.civitai-thumbnail-container.blurred img.civitai-search-thumbnail,
+.civitai-thumbnail-container.blurred video.civitai-search-thumbnail {
+    filter: blur(14px) brightness(0.6) saturate(0.6);
+    pointer-events: none; /* Let clicks hit the container */
+}
+.civitai-thumbnail-container .civitai-nsfw-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: 1px;
+    background: rgba(0,0,0,0.35);
+    z-index: 3;
+    user-select: none;
+}
+/* Make it obvious it’s clickable */
+.civitai-thumbnail-container.blurred { cursor: pointer; }
+
 /* Style for the type badge (likely exists) */
 .civitai-type-badge {
     /* ... existing styles ... */

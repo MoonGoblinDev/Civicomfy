@@ -59,6 +59,15 @@ export function setupEventListeners(ui) {
 
     // Search results actions
     ui.searchResultsContainer.addEventListener('click', (event) => {
+        // Click-to-reveal for blurred R-rated thumbnails
+        const thumbContainer = event.target.closest('.civitai-thumbnail-container');
+        if (thumbContainer && thumbContainer.classList.contains('blurred')) {
+            thumbContainer.classList.remove('blurred');
+            const overlay = thumbContainer.querySelector('.civitai-nsfw-overlay');
+            if (overlay) overlay.remove();
+            return; // Don't trigger other actions on this click
+        }
+
         const downloadButton = event.target.closest('.civitai-search-download-button');
         if (downloadButton) {
             event.preventDefault();

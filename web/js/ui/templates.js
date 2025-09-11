@@ -133,6 +133,18 @@ export function modalTemplate(settings = {}) {
                   <input type="checkbox" id="civitai-settings-auto-open-status" class="civitai-checkbox">
                   <label for="civitai-settings-auto-open-status">Switch to Status tab after starting download</label>
                 </div>
+                <div class="civitai-form-group inline">
+                  <input type="checkbox" id="civitai-settings-hide-mature" class="civitai-checkbox" ${settings.hideMatureInSearch ? 'checked' : ''}>
+                  <label for="civitai-settings-hide-mature">Hide R-rated (Mature) images in search (click to reveal)</label>
+                </div>
+                <div class="civitai-form-group">
+                  <label for="civitai-settings-nsfw-threshold">NSFW Blur Threshold (nsfwLevel)</label>
+                  <input type="number" id="civitai-settings-nsfw-threshold" class="civitai-input" value="${Number.isFinite(settings.nsfwBlurMinLevel) ? settings.nsfwBlurMinLevel : 32}" min="0" max="128" step="1">
+                  <p style="font-size: 0.85em; color: #bbb; margin-top: 5px;">
+                    Blur thumbnails when an image's <code>nsfwLevel</code> is greater than or equal to this value.
+                    Higher numbers indicate more explicit content. None (Safe/PG): 1, Mild (PG-13): 2, Mature (R): 4, Adult (X): 5, Extra Explicit (R): 8, Explicit (XXX): 16/32+
+                  </p>
+                </div>
               </div>
             </div>
             <button type="submit" id="civitai-settings-save" class="civitai-button primary" style="margin-top: 20px;">Save Settings</button>

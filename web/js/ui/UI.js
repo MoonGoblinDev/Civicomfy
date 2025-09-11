@@ -84,6 +84,8 @@ export class CivitaiDownloaderUI {
         this.settingsConnectionsInput = this.modal.querySelector('#civitai-settings-connections');
         this.settingsDefaultTypeSelect = this.modal.querySelector('#civitai-settings-default-type');
         this.settingsAutoOpenCheckbox = this.modal.querySelector('#civitai-settings-auto-open-status');
+        this.settingsHideMatureCheckbox = this.modal.querySelector('#civitai-settings-hide-mature');
+        this.settingsNsfwThresholdInput = this.modal.querySelector('#civitai-settings-nsfw-threshold');
         this.settingsSaveButton = this.modal.querySelector('#civitai-settings-save');
 
         // Toast Notification

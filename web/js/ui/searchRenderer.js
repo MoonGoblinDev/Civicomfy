@@ -33,7 +33,11 @@ export function renderSearchResults(ui, items) {
     const tags = hit.tags?.map(t => t.name) || [];
 
     const thumbnailUrl = hit.thumbnailUrl || placeholder;
-    const thumbnailType = hit.images?.[0]?.type;
+    const firstImage = Array.isArray(hit.images) && hit.images.length > 0 ? hit.images[0] : null;
+    const thumbnailType = firstImage?.type;
+    const nsfwLevel = Number(firstImage?.nsfwLevel ?? hit.nsfwLevel ?? 0);
+    const blurMinLevel = Number(ui.settings?.nsfwBlurMinLevel ?? 32);
+    const shouldBlur = ui.settings?.hideMatureInSearch === true && nsfwLevel >= blurMinLevel;
 
     const allVersions = hit.versions || [];
     const primaryVersion = hit.version || (allVersions.length > 0 ? allVersions[0] : {});
@@ -134,9 +138,13 @@ export function renderSearchResults(ui, items) {
       `;
     }
 
+    const overlayHtml = shouldBlur ? `<div class="civitai-nsfw-overlay" title="R-rated: click to reveal">R</div>` : '';
+    const containerClasses = `civitai-thumbnail-container${shouldBlur ? ' blurred' : ''}`;
+
     listItem.innerHTML = `
-      <div class="civitai-thumbnail-container">
+      <div class="${containerClasses}" data-nsfw-level="${nsfwLevel ?? ''}">
         ${thumbnailHtml}
+        ${overlayHtml}
         <div class="civitai-type-badge" data-type="${modelTypeApi.toLowerCase()}">${modelTypeApi}</div>
       </div>
       <div class="civitai-search-info">
@@ -179,4 +187,3 @@ export function renderSearchResults(ui, items) {
   ui.searchResultsContainer.innerHTML = '';
   ui.searchResultsContainer.appendChild(fragment);
 }
-
