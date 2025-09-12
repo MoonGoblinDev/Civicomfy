@@ -29,6 +29,10 @@ export async function fetchAndDisplayDownloadPreview(ui) {
         const result = await CivitaiDownloaderAPI.getModelDetails(params);
         if (result && result.success) {
             ui.renderDownloadPreview(result);
+            // Auto-select model type save location based on Civitai model type
+            if (result.model_type) {
+                await ui.autoSelectModelTypeFromCivitai(result.model_type);
+            }
         } else {
             const message = `Failed to get details: ${result.details || result.error || 'Unknown backend error'}`;
             ui.downloadPreviewArea.innerHTML = `<p style="color: var(--error-text, #ff6b6b);">${message}</p>`;

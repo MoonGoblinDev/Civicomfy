@@ -281,6 +281,92 @@ export class CivitaiDownloaderUI {
     renderSearchResults = (items) => renderSearchResults(this, items);
     renderDownloadPreview = (data) => renderDownloadPreview(this, data);
     
+    // --- Auto-select model type based on Civitai model type ---
+    inferFolderFromCivitaiType(civitaiType) {
+        if (!civitaiType || typeof civitaiType !== 'string') return null;
+        const t = civitaiType.trim().toLowerCase();
+        const keys = Object.keys(this.modelTypes || {});
+        if (keys.length === 0) return null;
+
+        const exists = (k) => keys.includes(k);
+        const findBy = (pred) => keys.find(pred);
+
+        // Direct matches first
+        if (exists(t)) return t;
+        if (exists(`${t}s`)) return `${t}s`;
+
+        // Common mappings from Civitai types to ComfyUI folders
+        const candidates = [];
+        const addIfExists = (k) => { if (exists(k)) candidates.push(k); };
+
+        switch (t) {
+            case 'checkpoint':
+                addIfExists('checkpoints');
+                addIfExists('models');
+                break;
+            case 'lora': case 'locon': case 'lycoris':
+                addIfExists('loras');
+                break;
+            case 'vae':
+                addIfExists('vae');
+                break;
+            case 'textualinversion': case 'embedding': case 'embeddings':
+                addIfExists('embeddings');
+                break;
+            case 'hypernetwork':
+                addIfExists('hypernetworks');
+                break;
+            case 'controlnet':
+                addIfExists('controlnet');
+                break;
+            case 'unet': case 'unet2':
+                addIfExists('unet');
+                break;
+            case 'diffusers': case 'diffusionmodels': case 'diffusion_models': case 'diffusion':
+                addIfExists('diffusers');
+                addIfExists('diffusion_models');
+                break;
+            case 'upscaler': case 'upscalers':
+                addIfExists('upscale_models');
+                addIfExists('upscalers');
+                break;
+            case 'motionmodule':
+                addIfExists('motion_models');
+                break;
+            case 'poses':
+                addIfExists('poses');
+                break;
+            case 'wildcards':
+                addIfExists('wildcards');
+                break;
+            case 'onnx':
+                addIfExists('onnx');
+                break;
+        }
+        if (candidates.length > 0) return candidates[0];
+
+        // Relaxed match: name contains type
+        const contains = findBy(k => k.toLowerCase().includes(t));
+        if (contains) return contains;
+
+        return null;
+    }
+
+    async autoSelectModelTypeFromCivitai(civitaiType) {
+        try {
+            const folder = this.inferFolderFromCivitaiType(civitaiType);
+            if (!folder) return;
+            if (this.downloadModelTypeSelect && this.downloadModelTypeSelect.value !== folder) {
+                this.downloadModelTypeSelect.value = folder;
+                await this.loadAndPopulateSubdirs(folder);
+                // Reset subdir to root after auto-switch
+                if (this.subdirSelect) this.subdirSelect.value = '';
+            }
+        } catch (e) {
+            console.warn('[Civicomfy] Auto-select model type failed:', e);
+        }
+    }
+
     renderSearchPagination(metadata) {
         if (!this.searchPaginationContainer) return;
         if (!metadata || metadata.totalPages <= 1) {
