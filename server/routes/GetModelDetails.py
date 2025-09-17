@@ -36,6 +36,16 @@ async def route_get_model_details(request):
         target_model_id = details['target_model_id']
         target_version_id = details['target_version_id']
 
+        # Fetch additional category information from TRPC
+        model_category = None
+        try:
+            trpc_data = api.get_model_details_trpc(target_model_id)
+            if trpc_data and (not isinstance(trpc_data, dict) or "error" not in trpc_data):
+                model_category = api.extract_model_category(trpc_data)
+        except Exception as e:
+            print(f"[GetModelDetails] Warning: Failed to fetch TRPC category data: {e}")
+            # Continue without category data
+
         # --- Extract Data for Frontend Preview ---
         model_name = model_info.get('name')
         creator_username = model_info.get('creator', {}).get('username', 'Unknown Creator')
@@ -171,6 +181,7 @@ async def route_get_model_details(request):
             "nsfw_level": nsfw_level,
             # Optionally include basic version info like baseModel
             "base_model": version_info.get("baseModel", "N/A"),
+            "model_category": model_category,
             # You could add tags here too if desired: model_info.get('tags', [])
         })
 

@@ -11,6 +11,7 @@ export function getDefaultSettings() {
         searchResultLimit: 20,
         hideMatureInSearch: true,
         nsfwBlurMinLevel: 4, // Blur thumbnails with nsfwLevel >= this value
+        customDownloadPath: '', // Default custom download path
     };
 }
 
@@ -56,6 +57,9 @@ export function applySettings(ui) {
     if (ui.settingsDefaultTypeSelect) {
         ui.settingsDefaultTypeSelect.value = ui.settings.defaultModelType || 'checkpoint';
     }
+    if (ui.settingsCustomPathInput) {
+        ui.settingsCustomPathInput.value = ui.settings.customDownloadPath || '';
+    }
     if (ui.settingsAutoOpenCheckbox) {
         ui.settingsAutoOpenCheckbox.checked = ui.settings.autoOpenStatusTab === true;
     }
@@ -72,6 +76,9 @@ export function applySettings(ui) {
     if (ui.downloadModelTypeSelect && Object.keys(ui.modelTypes).length > 0) {
         ui.downloadModelTypeSelect.value = ui.settings.defaultModelType || 'checkpoint';
     }
+    if (ui.customDownloadPathInput) {
+        ui.customDownloadPathInput.value = ui.settings.customDownloadPath || '';
+    }
     ui.searchPagination.limit = ui.settings.searchResultLimit || 20;
 }
 
@@ -79,6 +86,7 @@ export function handleSettingsSave(ui) {
     const apiKey = ui.settingsApiKeyInput.value.trim();
     const numConnections = parseInt(ui.settingsConnectionsInput.value, 10);
     const defaultModelType = ui.settingsDefaultTypeSelect.value;
+    const customDownloadPath = ui.settingsCustomPathInput.value.trim();
     const autoOpenStatusTab = ui.settingsAutoOpenCheckbox.checked;
     const hideMatureInSearch = ui.settingsHideMatureCheckbox.checked;
     const nsfwBlurMinLevel = Number(ui.settingsNsfwThresholdInput.value);
@@ -95,6 +103,7 @@ export function handleSettingsSave(ui) {
     ui.settings.apiKey = apiKey;
     ui.settings.numConnections = numConnections;
     ui.settings.defaultModelType = defaultModelType;
+    ui.settings.customDownloadPath = customDownloadPath;
     ui.settings.autoOpenStatusTab = autoOpenStatusTab;
     ui.settings.hideMatureInSearch = hideMatureInSearch;
     ui.settings.nsfwBlurMinLevel = (Number.isFinite(nsfwBlurMinLevel) && nsfwBlurMinLevel >= 0) ? Math.min(128, Math.round(nsfwBlurMinLevel)) : 4;

@@ -32,13 +32,9 @@ export function modalTemplate(settings = {}) {
                 </div>
               </div>
               <div class="civitai-form-group">
-                <label for="civitai-subdir-select">Save Subfolder</label>
-                <div style="display:flex; gap:6px; align-items:center;">
-                  <select id="civitai-subdir-select" class="civitai-select">
-                    <option value="">(root)</option>
-                  </select>
-                  <button type="button" id="civitai-create-subdir" class="civitai-button small" title="Create new subfolder"><i class="fas fa-folder-plus"></i></button>
-                </div>
+                <label for="civitai-custom-download-path">Custom Download Path (Optional)</label>
+                <input type="text" id="civitai-custom-download-path" class="civitai-input" placeholder="e.g., {model_type}/{model_category}/{model_name}">
+                <p style="font-size: 0.9em; color: #ccc; margin-top: 5px;">Variables: {model_name}, {base_model}, {model_category}, {model_type}</p>
               </div>
               <div class="civitai-form-group">
                 <label for="civitai-model-version-id">Version ID (Optional)</label>
@@ -137,6 +133,11 @@ export function modalTemplate(settings = {}) {
                 <div class="civitai-form-group">
                   <label for="civitai-settings-default-type">Default Model Type (for saving)</label>
                   <select id="civitai-settings-default-type" class="civitai-select" required></select>
+                </div>
+                <div class="civitai-form-group">
+                  <label for="civitai-settings-custom-path">Default Custom Download Path</label>
+                  <input type="text" id="civitai-settings-custom-path" class="civitai-input" placeholder="e.g., {model_type}/{model_category}/{model_name}">
+                  <p style="font-size: 0.85em; color: #bbb; margin-top: 5px;">Variables: {model_name}, {base_model}, {model_category}, {model_type}</p>
                 </div>
               </div>
               <div class="civitai-settings-section">

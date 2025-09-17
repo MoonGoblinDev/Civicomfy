@@ -2,6 +2,8 @@
 # File: server/utils.py
 # ================================================
 import json
+import re
+import os
 from typing import Any, Dict, Optional
 from aiohttp import web
 
@@ -152,3 +154,73 @@ async def get_civitai_model_and_version_details(api: CivitaiAPI, model_url_or_id
         "target_model_id": target_model_id,        # Resolved model ID
         "target_version_id": target_version_id,    # Resolved version ID (specific or latest)
     }
+
+def process_custom_download_path(custom_path: str, model_info: Dict[str, Any], 
+                                 version_info: Dict[str, Any], model_category: Optional[str] = None,
+                                 model_type: str = "") -> str:
+    """
+    Process a custom download path by substituting variables with actual model data.
+    
+    Args:
+        custom_path: The custom path template with variables like {model}, {base_model}, etc.
+        model_info: Model information from the API
+        version_info: Version information from the API
+        model_category: Model category extracted from TRPC (optional)
+        model_type: The selected model type/folder
+        
+    Returns:
+        Processed path with variables substituted
+    """
+    if not custom_path or not isinstance(custom_path, str):
+        return ""
+    
+    # Sanitize function to clean up names for filesystem use
+    def sanitize_name(name: str) -> str:
+        if not name or not isinstance(name, str):
+            return "unknown"
+        # Remove or replace problematic characters for filesystem
+        # Keep alphanumeric, spaces, hyphens, underscores, periods
+        sanitized = re.sub(r'[<>:"/\\|?*]', '_', name)
+        # Replace multiple spaces/underscores with single underscore
+        sanitized = re.sub(r'[\s_]+', '_', sanitized)
+        # Remove leading/trailing whitespace and underscores
+        sanitized = sanitized.strip('_').strip()
+        # Limit length to avoid filesystem issues
+        return sanitized[:100] if sanitized else "unknown"
+    
+    # Extract data for substitution
+    model_name = sanitize_name(model_info.get('name', 'unknown_model'))
+    base_model = sanitize_name(version_info.get('baseModel', 'unknown_base'))
+    category = sanitize_name(model_category or 'unknown_category')
+    model_type_clean = sanitize_name(model_type)
+    
+    # Variable substitution map
+    variables = {
+        'model_name': model_name,
+        'base_model': base_model,
+        'model_category': category,
+        'model_type': model_type_clean
+    }
+    
+    # Perform substitution
+    processed_path = custom_path
+    for var_name, var_value in variables.items():
+        pattern = '{' + var_name + '}'
+        processed_path = processed_path.replace(pattern, var_value)
+    
+    # Clean up any remaining unreplaced variables (remove empty braces)
+    processed_path = re.sub(r'\{[^}]*\}', '', processed_path)
+    
+    # Clean up path separators and ensure it's a valid relative path
+    processed_path = processed_path.replace('\\', '/')  # Normalize separators
+    processed_path = re.sub(r'/+', '/', processed_path)  # Remove duplicate slashes
+    processed_path = processed_path.strip('/')  # Remove leading/trailing slashes
+    
+    # Ensure the path doesn't try to escape the base directory
+    path_parts = []
+    for part in processed_path.split('/'):
+        part = part.strip()
+        if part and part not in ('.', '..'):
+            path_parts.append(part)
+    
+    return '/'.join(path_parts)

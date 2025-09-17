@@ -253,3 +253,64 @@ class CivitaiAPI:
             print(f"Civitai Meili Search Error: Failed to decode JSON response from {meili_url}: {json_err}")
             response_text = response.text[:200] if hasattr(response, 'text') else "N/A"
             return {"error": "Invalid JSON response from Meili", "details": response_text, "status_code": response.status_code if hasattr(response, 'status_code') else None}
+
+    def get_model_details_trpc(self, model_id: int) -> Optional[Dict[str, Any]]:
+        """Gets detailed model information including categories from the TRPC endpoint."""
+        trpc_url = f"https://civitai.com/api/trpc/model.getById"
+        params = {
+            "input": json.dumps({"json": {"id": model_id, "authed": True}})
+        }
+        
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        try:
+            response = requests.get(trpc_url, params=params, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract the model data from TRPC response structure
+            if isinstance(data, dict) and "result" in data and "data" in data["result"] and "json" in data["result"]["data"]:
+                return data["result"]["data"]["json"]
+            else:
+                print(f"Warning: Unexpected TRPC response structure: {data}")
+                return None
+                
+        except requests.exceptions.HTTPError as http_err:
+            error_detail = None
+            status_code = http_err.response.status_code
+            try:
+                error_detail = http_err.response.json()
+            except json.JSONDecodeError:
+                error_detail = http_err.response.text[:200]
+            print(f"Civitai TRPC HTTP Error ({trpc_url}): Status {status_code}, Response: {error_detail}")
+            return {"error": f"TRPC HTTP Error: {status_code}", "details": error_detail, "status_code": status_code}
+
+        except requests.exceptions.RequestException as req_err:
+            print(f"Civitai TRPC Request Error ({trpc_url}): {req_err}")
+            return {"error": str(req_err), "details": None, "status_code": None}
+
+        except json.JSONDecodeError as json_err:
+            print(f"Civitai TRPC Error: Failed to decode JSON response from {trpc_url}: {json_err}")
+            response_text = response.text[:200] if hasattr(response, 'text') else "N/A"
+            return {"error": "Invalid JSON response from TRPC", "details": response_text, "status_code": response.status_code if hasattr(response, 'status_code') else None}
+
+    def extract_model_category(self, trpc_data: Dict[str, Any]) -> Optional[str]:
+        """Extracts the model category from TRPC model data."""
+        if not isinstance(trpc_data, dict) or "tagsOnModels" not in trpc_data:
+            return None
+            
+        tags_on_models = trpc_data.get("tagsOnModels", [])
+        if not isinstance(tags_on_models, list):
+            return None
+            
+        # Find the tag with isCategory=True
+        for tag_entry in tags_on_models:
+            if isinstance(tag_entry, dict) and "tag" in tag_entry:
+                tag = tag_entry["tag"]
+                if isinstance(tag, dict) and tag.get("isCategory") is True:
+                    return tag.get("name")
+        
+        return None

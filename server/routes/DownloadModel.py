@@ -8,7 +8,7 @@ import re
 from aiohttp import web
 
 import server # ComfyUI server instance
-from ..utils import get_request_json
+from ..utils import get_request_json, process_custom_download_path
 from ...downloader.manager import manager as download_manager
 from ...api.civitai import CivitaiAPI
 from ...utils.helpers import get_model_dir, parse_civitai_input, sanitize_filename, select_primary_file
@@ -34,7 +34,7 @@ async def route_download_model(request):
         req_version_id = data.get("model_version_id") # Optional explicit version ID
         explicit_save_root = (data.get("save_root") or "").strip()
         custom_filename_input = data.get("custom_filename", "").strip()
-        selected_subdir = (data.get("subdir") or "").strip()
+        custom_download_path = data.get("custom_download_path", "").strip()
         # Optional file selection overrides
         req_file_id = data.get("file_id")
         req_file_name_contains = data.get("file_name_contains", "").strip()
@@ -218,6 +218,18 @@ async def route_download_model(request):
 
         file_id = primary_file.get("id") # May not be present, but useful for logging/metadata
 
+        # Fetch model category from TRPC if needed for custom path processing
+        model_category = None
+        if custom_download_path:
+            try:
+                trpc_data = api.get_model_details_trpc(target_model_id)
+                if trpc_data and (not isinstance(trpc_data, dict) or "error" not in trpc_data):
+                    model_category = api.extract_model_category(trpc_data)
+                    print(f"[Server Download] Extracted model category: {model_category}")
+            except Exception as e:
+                print(f"[Server Download] Warning: Failed to fetch TRPC category data: {e}")
+                # Continue without category data
+
         # *** Get the download URL directly from the file object ***
         download_url = primary_file.get("downloadUrl")
         print(f"[Server Download] Using Download URL: {download_url}")
@@ -229,12 +241,18 @@ async def route_download_model(request):
         final_filename = sanitize_filename(api_filename)
         sub_path = ""
 
-        # Subdir: only use the selected existing subdir coming from UI
-        if selected_subdir:
-            norm_sub = os.path.normpath(selected_subdir.replace('\\', '/'))
-            parts = [p for p in norm_sub.split('/') if p and p not in ('.', '..')]
-            if parts:
-                sub_path = os.path.join(*[sanitize_filename(p) for p in parts])
+        # Handle custom download path with variable substitution
+        if custom_download_path:
+            processed_path = process_custom_download_path(
+                custom_download_path, 
+                model_info, 
+                version_info, 
+                model_category, 
+                model_type_value
+            )
+            if processed_path:
+                sub_path = processed_path
+                print(f"[Server Download] Using custom download path: {sub_path}")
 
         # Filename: ignore any path separators in custom name; treat as base name only
         if custom_filename_input:
@@ -407,6 +425,7 @@ async def route_download_model(request):
             "model_url_or_id": model_url_or_id,
             "model_version_id": req_version_id,
             "custom_filename": custom_filename_input,
+            "custom_download_path": custom_download_path,
             "force_redownload": force_redownload,
             # UI Display Info
             "filename": final_filename,

@@ -19,9 +19,9 @@ export function setupEventListeners(ui) {
         ui.handleDownloadSubmit();
     });
 
-    // Change of model type should refresh subdir list
+    // Change of model type (removed subdirectory loading since we use custom paths now)
     ui.downloadModelTypeSelect.addEventListener('change', async () => {
-        await ui.loadAndPopulateSubdirs(ui.downloadModelTypeSelect.value);
+        // Model type changed - custom path will handle subdirectories
     });
 
     // Create new model type folder (first-level under models/)
@@ -33,32 +33,12 @@ export function setupEventListeners(ui) {
             if (res && res.success) {
                 await ui.populateModelTypes();
                 ui.downloadModelTypeSelect.value = res.name;
-                await ui.loadAndPopulateSubdirs(res.name);
                 ui.showToast(`Created model type folder: ${res.name}`, 'success');
             } else {
                 ui.showToast(res?.error || 'Failed to create model type folder', 'error');
             }
         } catch (e) {
             ui.showToast(e.details || e.message || 'Error creating model type folder', 'error');
-        }
-    });
-
-    // Create new subfolder under current model type
-    ui.createSubdirButton.addEventListener('click', async () => {
-        const type = ui.downloadModelTypeSelect.value;
-        const name = prompt('Enter new subfolder name (you can include nested paths like A/B):');
-        if (!name) return;
-        try {
-            const res = await CivitaiDownloaderAPI.createModelDir(type, name);
-            if (res && res.success) {
-                await ui.loadAndPopulateSubdirs(type);
-                if (ui.subdirSelect) ui.subdirSelect.value = res.created || '';
-                ui.showToast(`Created folder: ${res.created}`, 'success');
-            } else {
-                ui.showToast(res?.error || 'Failed to create folder', 'error');
-            }
-        } catch (e) {
-            ui.showToast(e.details || e.message || 'Error creating folder', 'error');
         }
     });
 
@@ -83,6 +63,12 @@ export function setupEventListeners(ui) {
     ui.modelUrlInput.addEventListener('input', () => ui.debounceFetchDownloadPreview());
     ui.modelUrlInput.addEventListener('paste', () => ui.debounceFetchDownloadPreview(0));
     ui.modelVersionIdInput.addEventListener('blur', () => ui.fetchAndDisplayDownloadPreview());
+
+    // Save custom download path when it changes
+    ui.customDownloadPathInput.addEventListener('input', () => {
+        ui.settings.customDownloadPath = ui.customDownloadPathInput.value.trim();
+        ui.saveSettingsToCookie();
+    });
 
     // --- DYNAMIC CONTENT LISTENERS (Event Delegation) ---
 
@@ -190,6 +176,7 @@ export function setupEventListeners(ui) {
             ui.modelUrlInput.value = modelId;
             ui.modelVersionIdInput.value = versionId;
             ui.customFilenameInput.value = '';
+            ui.customDownloadPathInput.value = '';
             ui.forceRedownloadCheckbox.checked = false;
             ui.downloadModelTypeSelect.value = modelTypeInternalKey;
 
