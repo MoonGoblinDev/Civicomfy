@@ -36,7 +36,8 @@ ComfyUI Manager
 
 ## Configuration
 
-- Enter your Civitai API Token in the setting
+- Enter your Civitai API Token in the settings, or set `CIVITAI_TOKEN` in the environment.
+- If the settings field is empty, Civicomfy now automatically falls back to `CIVITAI_TOKEN`.
 
 ## Screenshots
 <img width="911" alt="Screenshot 2025-04-08 at 11 24 40" src="https://github.com/user-attachments/assets/b9be0c32-729d-490e-be61-2dc072cd9b15" />

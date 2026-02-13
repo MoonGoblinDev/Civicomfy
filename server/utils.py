@@ -2,6 +2,7 @@
 # File: server/utils.py
 # ================================================
 import json
+import os
 from typing import Any, Dict, Optional
 from aiohttp import web
 
@@ -16,6 +17,16 @@ async def get_request_json(request):
     except Exception as e:
         print(f"Error parsing request JSON: {e}")
         raise web.HTTPBadRequest(reason=f"Invalid JSON format: {e}")
+
+def resolve_civitai_api_key(request_api_key: Any) -> Optional[str]:
+    """Use request token first, then fall back to CIVITAI_TOKEN env var."""
+    if request_api_key is not None:
+        value = str(request_api_key).strip()
+        if value:
+            return value
+
+    env_value = (os.getenv("CIVITAI_TOKEN") or "").strip()
+    return env_value or None
 
 async def get_civitai_model_and_version_details(api: CivitaiAPI, model_url_or_id: str, req_version_id: Optional[int]) -> Dict[str, Any]:
     """

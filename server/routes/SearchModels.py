@@ -7,7 +7,7 @@ import traceback
 from aiohttp import web
 
 import server # ComfyUI server instance
-from ..utils import get_request_json
+from ..utils import get_request_json, resolve_civitai_api_key
 from ...api.civitai import CivitaiAPI
 from ...config import CIVITAI_API_TYPE_MAP
 
@@ -28,14 +28,14 @@ async def route_search_models(request):
         # period = data.get("period", "AllTime")
         limit = int(data.get("limit", 20))
         page = int(data.get("page", 1))
-        api_key = data.get("api_key", "") # Keep for potential future use or different endpoints
+        api_key = resolve_civitai_api_key(data.get("api_key", ""))
         nsfw = data.get("nsfw", None) # Expect Boolean or None
 
         if not query and not model_type_keys and not base_model_filters:
              raise web.HTTPBadRequest(reason="Search requires a query or at least one filter (type or base model).")
 
         # Instantiate API - API key might not be needed for Meili public search
-        api = CivitaiAPI(api_key or None)
+        api = CivitaiAPI(api_key)
 
         # --- Prepare Filters for Meili API call ---
 

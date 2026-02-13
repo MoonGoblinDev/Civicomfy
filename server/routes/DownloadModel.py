@@ -8,7 +8,7 @@ import re
 from aiohttp import web
 
 import server # ComfyUI server instance
-from ..utils import get_request_json
+from ..utils import get_request_json, resolve_civitai_api_key
 from ...downloader.manager import manager as download_manager
 from ...api.civitai import CivitaiAPI
 from ...utils.helpers import get_model_dir, parse_civitai_input, sanitize_filename, select_primary_file
@@ -40,7 +40,7 @@ async def route_download_model(request):
         req_file_name_contains = data.get("file_name_contains", "").strip()
         num_connections = int(data.get("num_connections", 4))
         force_redownload = bool(data.get("force_redownload", False))
-        api_key = data.get("api_key", "") # Get API key from frontend settings
+        api_key = resolve_civitai_api_key(data.get("api_key", ""))
 
         if not model_url_or_id:
             raise web.HTTPBadRequest(reason="Missing 'model_url_or_id'")
@@ -48,7 +48,7 @@ async def route_download_model(request):
         # --- Input Parsing and Info Fetching ---
         print(f"[Server Download] Request: {model_url_or_id}, SaveType: {model_type_value}, Version: {req_version_id}")
         # Instantiate API with the key from the request (frontend settings)
-        api = CivitaiAPI(api_key or None) # Pass None if empty string
+        api = CivitaiAPI(api_key)
         parsed_model_id, parsed_version_id = parse_civitai_input(model_url_or_id)
 
         # Determine the target version ID (request param > URL param)
