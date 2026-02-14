@@ -45,12 +45,6 @@ export async function fetchAndDisplayDownloadPreview(ui) {
 }
 
 export async function handleDownloadSubmit(ui) {
-    if (!ui.settings.apiKey) {
-        ui.showToast("API key empty, please fill your API key in the settings", "error");
-        ui.switchTab("settings");
-        return;
-    }
-
     ui.downloadSubmitButton.disabled = true;
     ui.downloadSubmitButton.textContent = 'Starting...';
 

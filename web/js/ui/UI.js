@@ -2,7 +2,17 @@ import { Feedback } from "./feedback.js";
 import { setupEventListeners } from "./handlers/eventListeners.js";
 import { handleDownloadSubmit, fetchAndDisplayDownloadPreview, debounceFetchDownloadPreview } from "./handlers/downloadHandler.js";
 import { handleSearchSubmit } from "./handlers/searchHandler.js";
-import { handleSettingsSave, loadAndApplySettings, loadSettingsFromCookie, saveSettingsToCookie, applySettings, getDefaultSettings } from "./handlers/settingsHandler.js";
+import {
+    handleSettingsSave,
+    loadAndApplySettings,
+    loadSettingsFromCookie,
+    saveSettingsToCookie,
+    applySettings,
+    getDefaultSettings,
+    loadGlobalRootSetting,
+    handleSetGlobalRoot,
+    handleClearGlobalRoot,
+} from "./handlers/settingsHandler.js";
 import { startStatusUpdates, stopStatusUpdates, updateStatus, handleCancelDownload, handleRetryDownload, handleOpenPath, handleClearHistory } from "./handlers/statusHandler.js";
 import { renderSearchResults } from "./searchRenderer.js";
 import { renderDownloadList } from "./statusRenderer.js";
@@ -56,6 +66,7 @@ export class CivitaiDownloaderUI {
         this.customFilenameInput = this.modal.querySelector('#civitai-custom-filename');
         this.subdirSelect = this.modal.querySelector('#civitai-subdir-select');
         this.createSubdirButton = this.modal.querySelector('#civitai-create-subdir');
+        this.saveBasePathHint = this.modal.querySelector('#civitai-save-base-path');
         this.downloadConnectionsInput = this.modal.querySelector('#civitai-connections');
         this.forceRedownloadCheckbox = this.modal.querySelector('#civitai-force-redownload');
         this.downloadSubmitButton = this.modal.querySelector('#civitai-download-submit');
@@ -86,6 +97,9 @@ export class CivitaiDownloaderUI {
         // Settings Tab
         this.settingsForm = this.modal.querySelector('#civitai-settings-form');
         this.settingsApiKeyInput = this.modal.querySelector('#civitai-settings-api-key');
+        this.settingsGlobalRootInput = this.modal.querySelector('#civitai-settings-global-root');
+        this.settingsSetGlobalRootButton = this.modal.querySelector('#civitai-settings-set-global-root');
+        this.settingsClearGlobalRootButton = this.modal.querySelector('#civitai-settings-clear-global-root');
         this.settingsConnectionsInput = this.modal.querySelector('#civitai-settings-connections');
         this.settingsDefaultTypeSelect = this.modal.querySelector('#civitai-settings-default-type');
         this.settingsAutoOpenCheckbox = this.modal.querySelector('#civitai-settings-auto-open-status');
@@ -113,6 +127,10 @@ export class CivitaiDownloaderUI {
         await this.populateModelTypes();
         await this.populateBaseModels();
         this.loadAndApplySettings();
+        await this.loadGlobalRootSetting();
+        if (this.downloadModelTypeSelect) {
+            await this.loadAndPopulateSubdirs(this.downloadModelTypeSelect.value);
+        }
     }
 
     async populateModelTypes() {
@@ -142,8 +160,8 @@ export class CivitaiDownloaderUI {
         } catch (error) {
             console.error("[Civicomfy] Failed to get or populate model types:", error);
             this.showToast('Failed to load model types', 'error');
-            this.downloadModelTypeSelect.innerHTML = '<option value="checkpoint">Checkpoint (Default)</option>';
-            this.modelTypes = { "checkpoint": "Checkpoint (Default)" };
+            this.downloadModelTypeSelect.innerHTML = '<option value="checkpoints">Checkpoints (Default)</option>';
+            this.modelTypes = { "checkpoints": "Checkpoints (Default)" };
         }
     }
 
@@ -171,10 +189,17 @@ export class CivitaiDownloaderUI {
             if (Array.from(select.options).some(o => o.value === current)) {
                 select.value = current;
             }
+            if (this.saveBasePathHint) {
+                const basePath = (res && typeof res.base_dir === 'string') ? res.base_dir : '';
+                this.saveBasePathHint.textContent = basePath ? `Base path: ${basePath}` : '';
+            }
         } catch (e) {
             console.error('[Civicomfy] Failed to load subdirectories:', e);
             if (this.subdirSelect) {
                 this.subdirSelect.innerHTML = '<option value="">(root)</option>';
+            }
+            if (this.saveBasePathHint) {
+                this.saveBasePathHint.textContent = '';
             }
         }
     }
@@ -423,6 +448,9 @@ export class CivitaiDownloaderUI {
     saveSettingsToCookie = () => saveSettingsToCookie(this);
     applySettings = () => applySettings(this);
     handleSettingsSave = () => handleSettingsSave(this);
+    loadGlobalRootSetting = () => loadGlobalRootSetting(this);
+    handleSetGlobalRoot = () => handleSetGlobalRoot(this);
+    handleClearGlobalRoot = () => handleClearGlobalRoot(this);
     handleDownloadSubmit = () => handleDownloadSubmit(this);
     handleSearchSubmit = () => handleSearchSubmit(this);
     fetchAndDisplayDownloadPreview = () => fetchAndDisplayDownloadPreview(this);

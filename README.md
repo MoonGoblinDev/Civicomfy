@@ -36,7 +36,11 @@ ComfyUI Manager
 
 ## Configuration
 
-- Enter your Civitai API Token in the setting
+- Enter your Civitai API Token in the settings, or set `CIVITAI_API_KEY` in the server environment (useful for cloud deployments like RunPod).
+- Optional: set a **Global Download Root** in Civicomfy settings.
+  - When set, Civicomfy saves to `<global_root>/<model_type>` (for example `/runpod-volume/ComfyUI/checkpoints` or `/runpod-volume/ComfyUI/loras`).
+  - When empty, Civicomfy uses the default ComfyUI paths (`folder_paths` / `extra_model_paths.yaml`).
+  - The global root is persisted on disk in `custom_nodes/Civicomfy/root_settings.json`.
 
 ## Screenshots
 <img width="911" alt="Screenshot 2025-04-08 at 11 24 40" src="https://github.com/user-attachments/assets/b9be0c32-729d-490e-be61-2dc072cd9b15" />

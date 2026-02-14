@@ -1,4 +1,5 @@
 import { setCookie, getCookie } from "../../utils/cookies.js";
+import { CivitaiDownloaderAPI } from "../../api/civitai.js";
 
 const SETTINGS_COOKIE_NAME = 'civitaiDownloaderSettings';
 
@@ -6,7 +7,7 @@ export function getDefaultSettings() {
     return {
         apiKey: '',
         numConnections: 1,
-        defaultModelType: 'checkpoint',
+        defaultModelType: 'checkpoints',
         autoOpenStatusTab: true,
         searchResultLimit: 20,
         hideMatureInSearch: true,
@@ -54,7 +55,12 @@ export function applySettings(ui) {
         ui.settingsConnectionsInput.value = Math.max(1, Math.min(16, ui.settings.numConnections || 1));
     }
     if (ui.settingsDefaultTypeSelect) {
-        ui.settingsDefaultTypeSelect.value = ui.settings.defaultModelType || 'checkpoint';
+        const desired = ui.settings.defaultModelType || 'checkpoints';
+        ui.settingsDefaultTypeSelect.value = desired;
+        if (!ui.settingsDefaultTypeSelect.querySelector(`option[value="${ui.settingsDefaultTypeSelect.value}"]`)) {
+            const first = ui.settingsDefaultTypeSelect.querySelector('option');
+            if (first) ui.settingsDefaultTypeSelect.value = first.value;
+        }
     }
     if (ui.settingsAutoOpenCheckbox) {
         ui.settingsAutoOpenCheckbox.checked = ui.settings.autoOpenStatusTab === true;
@@ -70,9 +76,59 @@ export function applySettings(ui) {
         ui.downloadConnectionsInput.value = Math.max(1, Math.min(16, ui.settings.numConnections || 1));
     }
     if (ui.downloadModelTypeSelect && Object.keys(ui.modelTypes).length > 0) {
-        ui.downloadModelTypeSelect.value = ui.settings.defaultModelType || 'checkpoint';
+        const desired = ui.settings.defaultModelType || 'checkpoints';
+        ui.downloadModelTypeSelect.value = desired;
+        if (!ui.downloadModelTypeSelect.querySelector(`option[value="${ui.downloadModelTypeSelect.value}"]`)) {
+            const first = ui.downloadModelTypeSelect.querySelector('option');
+            if (first) ui.downloadModelTypeSelect.value = first.value;
+        }
     }
     ui.searchPagination.limit = ui.settings.searchResultLimit || 20;
+}
+
+export async function loadGlobalRootSetting(ui) {
+    if (!ui.settingsGlobalRootInput) return;
+    try {
+        const result = await CivitaiDownloaderAPI.getGlobalRoot();
+        const globalRoot = (result && typeof result.global_root === 'string') ? result.global_root : '';
+        ui.settingsGlobalRootInput.value = globalRoot;
+    } catch (e) {
+        console.warn("[Civicomfy] Failed to load global root setting:", e);
+    }
+}
+
+export async function handleSetGlobalRoot(ui) {
+    if (!ui.settingsGlobalRootInput) return;
+    const path = ui.settingsGlobalRootInput.value.trim();
+    if (!path) {
+        ui.showToast("Please enter a global root path first.", "error");
+        return;
+    }
+    try {
+        const result = await CivitaiDownloaderAPI.setGlobalRoot(path);
+        const saved = (result && typeof result.global_root === 'string') ? result.global_root : path;
+        ui.settingsGlobalRootInput.value = saved;
+        ui.showToast("Global root updated.", "success");
+        if (ui.downloadModelTypeSelect) {
+            await ui.loadAndPopulateSubdirs(ui.downloadModelTypeSelect.value);
+        }
+    } catch (e) {
+        ui.showToast(e.details || e.message || "Failed to set global root.", "error", 6000);
+    }
+}
+
+export async function handleClearGlobalRoot(ui) {
+    if (!ui.settingsGlobalRootInput) return;
+    try {
+        await CivitaiDownloaderAPI.clearGlobalRoot();
+        ui.settingsGlobalRootInput.value = "";
+        ui.showToast("Global root cleared. Using default ComfyUI paths.", "success");
+        if (ui.downloadModelTypeSelect) {
+            await ui.loadAndPopulateSubdirs(ui.downloadModelTypeSelect.value);
+        }
+    } catch (e) {
+        ui.showToast(e.details || e.message || "Failed to clear global root.", "error", 6000);
+    }
 }
 
 export function handleSettingsSave(ui) {

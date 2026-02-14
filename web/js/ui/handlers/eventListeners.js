@@ -78,6 +78,16 @@ export function setupEventListeners(ui) {
         event.preventDefault();
         ui.handleSettingsSave();
     });
+    if (ui.settingsSetGlobalRootButton) {
+        ui.settingsSetGlobalRootButton.addEventListener('click', () => {
+            ui.handleSetGlobalRoot();
+        });
+    }
+    if (ui.settingsClearGlobalRootButton) {
+        ui.settingsClearGlobalRootButton.addEventListener('click', () => {
+            ui.handleClearGlobalRoot();
+        });
+    }
 
     // Download form inputs
     ui.modelUrlInput.addEventListener('input', () => ui.debounceFetchDownloadPreview());

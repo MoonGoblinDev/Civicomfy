@@ -39,6 +39,7 @@ export function modalTemplate(settings = {}) {
                   </select>
                   <button type="button" id="civitai-create-subdir" class="civitai-button small" title="Create new subfolder"><i class="fas fa-folder-plus"></i></button>
                 </div>
+                <p id="civitai-save-base-path" style="font-size: 0.8em; color: #bbb; margin-top: 6px; word-break: break-all;"></p>
               </div>
               <div class="civitai-form-group">
                 <label for="civitai-model-version-id">Version ID (Optional)</label>
@@ -127,7 +128,18 @@ export function modalTemplate(settings = {}) {
                 <div class="civitai-form-group">
                   <label for="civitai-settings-api-key">Civitai API Key (Optional)</label>
                   <input type="password" id="civitai-settings-api-key" class="civitai-input" placeholder="Enter API key for higher limits / authenticated access" autocomplete="new-password">
-                  <p style="font-size: 0.85em; color: #bbb; margin-top: 5px;">Needed for some downloads/features. Find keys at civitai.com/user/account</p>
+                  <p style="font-size: 0.85em; color: #bbb; margin-top: 5px;">Needed for some downloads/features. Leave blank to use server env <code>CIVITAI_API_KEY</code>. Find keys at civitai.com/user/account</p>
+                </div>
+                <div class="civitai-form-group">
+                  <label for="civitai-settings-global-root">Global Download Root (Optional)</label>
+                  <input type="text" id="civitai-settings-global-root" class="civitai-input" placeholder="e.g., /runpod-volume/ComfyUI or F:/Models/ComfyUI">
+                  <p style="font-size: 0.85em; color: #bbb; margin-top: 5px;">
+                    When set, downloads use <code>&lt;global_root&gt;/&lt;model_type&gt;</code> (for example <code>/runpod-volume/ComfyUI/checkpoints</code>).
+                  </p>
+                  <div style="display:flex; gap:8px; margin-top: 8px; flex-wrap: wrap;">
+                    <button type="button" id="civitai-settings-set-global-root" class="civitai-button small">Set Global Root</button>
+                    <button type="button" id="civitai-settings-clear-global-root" class="civitai-button danger small">Clear Global Root</button>
+                  </div>
                 </div>
                 <div class="civitai-form-group">
                   <label for="civitai-settings-connections">Default Connections</label>

@@ -12,6 +12,145 @@ import folder_paths
 # Import config values needed here
 from ..config import PLUGIN_ROOT, MODEL_TYPE_DIRS
 
+# Canonical aliases for model type/folder names. Values are preferred folder names.
+MODEL_TYPE_ALIASES = {
+    "checkpoint": "checkpoints",
+    "checkpoints": "checkpoints",
+    "diffusionmodel": "diffusion_models",
+    "diffusionmodels": "diffusion_models",
+    "diffusion_model": "diffusion_models",
+    "diffusion_models": "diffusion_models",
+    "diffusers": "diffusers",
+    "unet": "unet",
+    "lora": "loras",
+    "loras": "loras",
+    "locon": "loras",
+    "lycoris": "loras",
+    "vae": "vae",
+    "embedding": "embeddings",
+    "embeddings": "embeddings",
+    "textualinversion": "embeddings",
+    "hypernetwork": "hypernetworks",
+    "hypernetworks": "hypernetworks",
+    "controlnet": "controlnet",
+    "upscaler": "upscale_models",
+    "upscalers": "upscale_models",
+    "upscale_model": "upscale_models",
+    "upscale_models": "upscale_models",
+    "motionmodule": "motion_models",
+    "motionmodules": "motion_models",
+    "motion_model": "motion_models",
+    "motion_models": "motion_models",
+}
+
+MODEL_TYPE_ALIASES_COMPACT = {
+    re.sub(r'[^a-z0-9]', '', k): v for k, v in MODEL_TYPE_ALIASES.items()
+}
+
+def _normalize_model_type(model_type: str) -> str:
+    return (model_type or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+def get_model_type_folder_name(model_type: str) -> str:
+    """
+    Returns a stable folder-name key for a model type.
+    Used when creating paths under a custom/global base root.
+    """
+    normalized = _normalize_model_type(model_type)
+    if not normalized:
+        return "checkpoints"
+
+    if normalized in MODEL_TYPE_ALIASES:
+        return MODEL_TYPE_ALIASES[normalized]
+
+    compact = re.sub(r'[^a-z0-9]', '', normalized)
+    if compact in MODEL_TYPE_ALIASES_COMPACT:
+        return MODEL_TYPE_ALIASES_COMPACT[compact]
+
+    # Config mapping fallback for legacy internal keys
+    display_and_type = MODEL_TYPE_DIRS.get(normalized)
+    if display_and_type:
+        _, folder_paths_type = display_and_type
+        if folder_paths_type:
+            return str(folder_paths_type)
+
+    return normalized
+
+def _get_model_type_lookup_keys(model_type: str) -> List[str]:
+    """
+    Candidate keys to query `folder_paths.get_folder_paths`.
+    Ordered from most direct to compatibility fallbacks.
+    """
+    normalized = _normalize_model_type(model_type)
+    preferred = get_model_type_folder_name(model_type)
+    keys: List[str] = []
+
+    def add(v: Optional[str]):
+        if v and v not in keys:
+            keys.append(v)
+
+    add(normalized)
+    add(preferred)
+
+    # Config mapping candidate
+    display_and_type = MODEL_TYPE_DIRS.get(normalized)
+    if display_and_type:
+        _, folder_paths_type = display_and_type
+        add(folder_paths_type)
+
+    compact = re.sub(r'[^a-z0-9]', '', normalized)
+    add(MODEL_TYPE_ALIASES_COMPACT.get(compact))
+
+    # Compatibility candidates for ComfyUI aliases/types
+    compatibility = {
+        "checkpoint": ["checkpoints"],
+        "checkpoints": ["checkpoint"],
+        "lora": ["loras"],
+        "loras": ["lora"],
+        "embedding": ["embeddings"],
+        "embeddings": ["embedding"],
+        "hypernetwork": ["hypernetworks"],
+        "hypernetworks": ["hypernetwork"],
+        "upscaler": ["upscale_models"],
+        "upscale_models": ["upscaler"],
+        "motionmodule": ["motion_models"],
+        "motion_models": ["motionmodule"],
+        "unet": ["diffusion_models"],
+        "diffusion_models": ["unet", "diffusers"],
+        "diffusers": ["diffusion_models"],
+        "clip": ["text_encoders"],
+        "text_encoders": ["clip"],
+    }
+    for item in compatibility.get(normalized, []):
+        add(item)
+    for item in compatibility.get(preferred, []):
+        add(item)
+
+    # Basic singular/plural fallback
+    if normalized.endswith("s"):
+        add(normalized[:-1])
+    else:
+        add(f"{normalized}s")
+
+    return keys
+
+def get_model_folder_paths(model_type: str) -> List[str]:
+    """
+    Returns all known paths for a model type from ComfyUI's folder_paths registry.
+    """
+    roots: List[str] = []
+    for key in _get_model_type_lookup_keys(model_type):
+        try:
+            paths_list = folder_paths.get_folder_paths(key)
+            if isinstance(paths_list, (list, tuple)):
+                for p in paths_list:
+                    if isinstance(p, str):
+                        ap = os.path.abspath(p)
+                        if ap not in roots:
+                            roots.append(ap)
+        except Exception:
+            continue
+    return roots
+
 def get_model_dir(model_type: str) -> str:
     """
     Resolve the absolute directory path for a model type using ComfyUI's
@@ -19,54 +158,23 @@ def get_model_dir(model_type: str) -> str:
     Ensures the directory exists.
     """
     model_type_raw = (model_type or "").strip()
-    model_type_key = model_type_raw.lower()
+    known_paths = get_model_folder_paths(model_type_raw)
+    full_path = known_paths[0] if known_paths else None
 
-    display_and_type = MODEL_TYPE_DIRS.get(model_type_key)
-    folder_paths_type = None
-    if display_and_type:
-        _, folder_paths_type = display_and_type
-
-    if display_and_type and folder_paths_type:
-        try:
-            # Preferred: ask ComfyUI for the configured directory for this type
-            full_path = folder_paths.get_directory_by_type(folder_paths_type)
-            # If API returned a falsy value, try alternative lookups
-            if not full_path:
-                raise RuntimeError(f"No directory registered for type '{folder_paths_type}'")
-        except Exception:
-            # Fallback: assume a subdirectory under models_dir
-            print(f"Warning: Could not resolve path for type '{folder_paths_type}' via folder_paths. Falling back to models_dir.")
-            # Try get_folder_paths first
-            full_path = None
-            try:
-                get_fp = getattr(folder_paths, 'get_folder_paths', None)
-                if callable(get_fp):
-                    paths_list = get_fp(folder_paths_type)
-                    if isinstance(paths_list, (list, tuple)) and paths_list:
-                        full_path = paths_list[0]
-            except Exception:
-                pass
-            if not full_path:
-                models_dir = getattr(folder_paths, 'models_dir', None)
-                if not models_dir:
-                    # Last resort: try to infer a models dir near base_path
-                    base = getattr(folder_paths, 'base_path', os.getcwd())
-                    models_dir = os.path.join(base, 'models')
-                full_path = os.path.join(models_dir, folder_paths_type)
-    else:
+    if not full_path:
         # Treat model_type as a literal folder under the main models directory
         models_dir = getattr(folder_paths, 'models_dir', None)
         if not models_dir:
             base = getattr(folder_paths, 'base_path', os.getcwd())
             models_dir = os.path.join(base, 'models')
-        # Use the raw (case-preserving) folder name
-        full_path = os.path.join(models_dir, model_type_raw)
+        folder_name = get_model_type_folder_name(model_type_raw)
+        full_path = os.path.join(models_dir, folder_name)
 
     # Ensure the directory exists
     try:
         # Ensure full_path is a string path
         if not isinstance(full_path, (str, bytes, os.PathLike)):
-            raise TypeError(f"Resolved directory for '{model_type_key}' is invalid: {full_path!r}")
+            raise TypeError(f"Resolved directory for '{model_type_raw}' is invalid: {full_path!r}")
         os.makedirs(full_path, exist_ok=True)
     except Exception as e:
         print(f"Error: Could not create directory '{full_path}': {e}")

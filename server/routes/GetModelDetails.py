@@ -7,7 +7,7 @@ import traceback
 from aiohttp import web
 
 import server # ComfyUI server instance
-from ..utils import get_request_json, get_civitai_model_and_version_details
+from ..utils import get_request_json, get_civitai_model_and_version_details, resolve_civitai_api_key
 from ...api.civitai import CivitaiAPI
 from ...config import PLACEHOLDER_IMAGE_PATH
 
@@ -20,13 +20,13 @@ async def route_get_model_details(request):
         data = await get_request_json(request)
         model_url_or_id = data.get("model_url_or_id")
         req_version_id = data.get("model_version_id") # Optional explicit version ID
-        api_key = data.get("api_key", "")
+        resolved_api_key = resolve_civitai_api_key(data)
 
         if not model_url_or_id:
             raise web.HTTPBadRequest(reason="Missing 'model_url_or_id'")
 
-        # Instantiate API
-        api = CivitaiAPI(api_key or None)
+        # API key priority: request payload > CIVITAI_API_KEY env var
+        api = CivitaiAPI(resolved_api_key)
 
         # Use the helper to get details
         details = await get_civitai_model_and_version_details(api, model_url_or_id, req_version_id)

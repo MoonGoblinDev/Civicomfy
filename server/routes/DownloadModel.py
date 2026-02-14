@@ -8,7 +8,7 @@ import re
 from aiohttp import web
 
 import server # ComfyUI server instance
-from ..utils import get_request_json
+from ..utils import get_request_json, resolve_civitai_api_key
 from ...downloader.manager import manager as download_manager
 from ...api.civitai import CivitaiAPI
 from ...utils.helpers import get_model_dir, parse_civitai_input, sanitize_filename, select_primary_file
@@ -19,7 +19,6 @@ prompt_server = server.PromptServer.instance
 @prompt_server.routes.post("/civitai/download")
 async def route_download_model(request):
     """API Endpoint to initiate a download."""
-    api_key = None # Define outside try block
     model_info = None # Define here for broader scope
     version_info = None
     primary_file = None
@@ -40,15 +39,15 @@ async def route_download_model(request):
         req_file_name_contains = data.get("file_name_contains", "").strip()
         num_connections = int(data.get("num_connections", 4))
         force_redownload = bool(data.get("force_redownload", False))
-        api_key = data.get("api_key", "") # Get API key from frontend settings
+        resolved_api_key = resolve_civitai_api_key(data)
 
         if not model_url_or_id:
             raise web.HTTPBadRequest(reason="Missing 'model_url_or_id'")
 
         # --- Input Parsing and Info Fetching ---
         print(f"[Server Download] Request: {model_url_or_id}, SaveType: {model_type_value}, Version: {req_version_id}")
-        # Instantiate API with the key from the request (frontend settings)
-        api = CivitaiAPI(api_key or None) # Pass None if empty string
+        # API key priority: request payload > CIVITAI_API_KEY env var
+        api = CivitaiAPI(resolved_api_key)
         parsed_model_id, parsed_version_id = parse_civitai_input(model_url_or_id)
 
         # Determine the target version ID (request param > URL param)
@@ -247,20 +246,25 @@ async def route_download_model(request):
 
         # Get the target base directory for the selected model type, allow explicit root
         if explicit_save_root:
-            # Validate the explicit root belongs to known roots for this type (ComfyUI or plugin)
+            # Validate explicit root against known roots for this type.
             try:
-                from ..routes.GetModelDirs import _get_all_roots_for_type
+                from ..routes.GetModelDirs import _get_all_roots_for_type, _get_effective_base_dir
                 known_roots = _get_all_roots_for_type(model_type_value)
                 if os.path.abspath(explicit_save_root) in [os.path.abspath(p) for p in known_roots]:
-                    base_output_dir = explicit_save_root
+                    base_output_dir = os.path.abspath(explicit_save_root)
                 else:
                     print(f"[Server Download] Warning: Provided save_root not in known roots for type '{model_type_value}': {explicit_save_root}")
-                    base_output_dir = get_model_dir(model_type_value)
+                    base_output_dir = _get_effective_base_dir(model_type_value)
             except Exception as e:
                 print(f"[Server Download] Warning: Failed validating explicit save_root: {e}")
                 base_output_dir = get_model_dir(model_type_value)
         else:
-            base_output_dir = get_model_dir(model_type_value)
+            # No explicit per-request root: use global root (if configured), else default model dir.
+            try:
+                from ..routes.GetModelDirs import _get_effective_base_dir
+                base_output_dir = _get_effective_base_dir(model_type_value)
+            except Exception:
+                base_output_dir = get_model_dir(model_type_value)
         output_dir = os.path.join(base_output_dir, sub_path) if sub_path else base_output_dir
         # Ensure directory exists (including subdirectories)
         try:
@@ -402,7 +406,7 @@ async def route_download_model(request):
             "output_path": output_path,
             "num_connections": num_connections,
             "known_size": known_size_bytes,
-            "api_key": api_key or None, # Pass API key for download auth if needed
+            "api_key": resolved_api_key, # Pass API key for download auth if needed
             # Retry/context fields
             "model_url_or_id": model_url_or_id,
             "model_version_id": req_version_id,

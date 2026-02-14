@@ -86,15 +86,15 @@ export class CivitaiDownloaderAPI {
   }
 
   static async getModelDirs(modelType) {
-    const q = encodeURIComponent(modelType || 'checkpoint');
+    const q = encodeURIComponent(modelType || 'checkpoints');
     return await this._request(`/civitai/model_dirs?type=${q}`);
   }
 
-  static async createModelDir(modelType, newDir) {
+  static async createModelDir(modelType, newDir, root = "") {
     return await this._request("/civitai/create_dir", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model_type: modelType, new_dir: newDir }),
+      body: JSON.stringify({ model_type: modelType, new_dir: newDir, root }),
     });
   }
 
@@ -107,7 +107,7 @@ export class CivitaiDownloaderAPI {
   }
 
   static async getModelRoots(modelType) {
-    const q = encodeURIComponent(modelType || 'checkpoint');
+    const q = encodeURIComponent(modelType || 'checkpoints');
     return await this._request(`/civitai/model_roots?type=${q}`);
   }
 
@@ -116,6 +116,26 @@ export class CivitaiDownloaderAPI {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model_type: modelType, path: absPath }),
+    });
+  }
+
+  static async getGlobalRoot() {
+    return await this._request("/civitai/global_root");
+  }
+
+  static async setGlobalRoot(path) {
+    return await this._request("/civitai/global_root", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+  }
+
+  static async clearGlobalRoot() {
+    return await this._request("/civitai/global_root/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
     });
   }
 
